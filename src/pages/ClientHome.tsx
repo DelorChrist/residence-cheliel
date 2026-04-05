@@ -1,26 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Menu, X, MapPin, Phone, Star, Wifi, Wind, CheckCircle2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { rooms } from '../data/rooms';
+import { rooms, Room } from '../data/rooms';
 import { useReservations, PaymentMethod } from '../hooks/useReservations';
+
+const today = new Date().toISOString().split('T')[0];
 
 export const ClientHome = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 50);
-    };
+    const handleScroll = () => setIsScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
   const openReservationModal = (roomId?: string) => {
-    if (roomId) setSelectedRoomId(roomId);
+    setSelectedRoomId(roomId ?? null);
     setIsModalOpen(true);
   };
 
@@ -31,7 +30,7 @@ export const ClientHome = () => {
         <div className="container mx-auto px-6 flex justify-between items-center">
           <Link to="/" className="flex items-center gap-2">
             <div className="w-10 h-10 bg-primary-600 rounded-lg flex items-center justify-center text-white font-heading font-bold text-xl">RC</div>
-            <div className={`font-heading font-bold text-2xl tracking-tight ${isScrolled ? 'text-primary-900' : 'text-white'}`}>Cheliel</div>
+            <div className={`font-heading font-bold text-2xl tracking-tight ${isScrolled ? 'text-primary-900' : 'text-white'}`}>Résidence Cheliel</div>
           </Link>
 
           {/* Desktop Nav */}
@@ -39,7 +38,7 @@ export const ClientHome = () => {
             <a href="#accueil" className={`font-medium hover:text-primary-500 transition-colors ${isScrolled ? 'text-gray-600' : 'text-white/90'}`}>Accueil</a>
             <a href="#chambres" className={`font-medium hover:text-primary-500 transition-colors ${isScrolled ? 'text-gray-600' : 'text-white/90'}`}>Nos Chambres</a>
             <a href="#services" className={`font-medium hover:text-primary-500 transition-colors ${isScrolled ? 'text-gray-600' : 'text-white/90'}`}>Services</a>
-            <button 
+            <button
               onClick={() => openReservationModal()}
               className="bg-primary-600 hover:bg-primary-700 text-white px-6 py-2.5 rounded-full font-medium transition-colors shadow-lg shadow-primary-900/20"
             >
@@ -59,7 +58,7 @@ export const ClientHome = () => {
             <a href="#accueil" onClick={() => setMobileMenuOpen(false)} className="text-gray-600 font-medium py-2">Accueil</a>
             <a href="#chambres" onClick={() => setMobileMenuOpen(false)} className="text-gray-600 font-medium py-2">Nos Chambres</a>
             <a href="#services" onClick={() => setMobileMenuOpen(false)} className="text-gray-600 font-medium py-2">Services</a>
-            <button 
+            <button
               onClick={() => { openReservationModal(); setMobileMenuOpen(false); }}
               className="bg-primary-600 text-white px-6 py-3 rounded-xl font-medium w-full mt-2"
             >
@@ -72,11 +71,11 @@ export const ClientHome = () => {
       {/* Hero Section */}
       <section id="accueil" className="relative h-screen flex items-center justify-center overflow-hidden">
         <div className="absolute inset-0 z-0">
-          <img src="/images/hero.jpg" alt="Résidence Cheliel" className="w-full h-full object-cover" />
+          <img src="/images/hero.jpg" alt="Résidence Cheliel" className="w-full h-full object-cover" loading="eager" />
           <div className="absolute inset-0 bg-black/40"></div>
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
         </div>
-        
+
         <div className="container relative z-10 mx-auto px-6 text-center mt-20">
           <p className="text-primary-200 font-medium tracking-[0.2em] uppercase text-sm mb-4">L'art de vivre à l'ivoirienne</p>
           <h1 className="text-5xl md:text-7xl font-heading font-bold text-white mb-6 leading-tight">
@@ -86,7 +85,7 @@ export const ClientHome = () => {
             Découvrez nos résidences meublées haut de gamme, alliant confort moderne et élégance pour des séjours inoubliables.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <button 
+            <button
               onClick={() => openReservationModal()}
               className="bg-primary-600 hover:bg-primary-500 text-white px-8 py-4 rounded-full font-medium text-lg transition-all transform hover:scale-105"
             >
@@ -148,7 +147,7 @@ export const ClientHome = () => {
             </div>
             <p className="text-primary-200/80 max-w-sm mb-6">Votre adresse de prestige pour un séjour d'exception à Abidjan. Le luxe sobre et l'hospitalité ivoirienne vous attendent.</p>
           </div>
-          
+
           <div>
             <h4 className="text-white font-heading font-bold mb-6 text-lg">Contact</h4>
             <ul className="space-y-4 text-primary-200/80">
@@ -179,17 +178,17 @@ export const ClientHome = () => {
 
       {/* Reservation Modal */}
       {isModalOpen && (
-        <ReservationModal 
-          onClose={() => setIsModalOpen(false)} 
-          initialRoomId={selectedRoomId} 
+        <ReservationModal
+          onClose={() => setIsModalOpen(false)}
+          initialRoomId={selectedRoomId}
         />
       )}
     </div>
   );
 };
 
-// Extracted Room Section Component
-const RoomSection = ({ room, reversed, onReserve }: { room: any, reversed: boolean, onReserve: () => void }) => {
+// Room Section Component
+const RoomSection = ({ room, reversed, onReserve }: { room: Room, reversed: boolean, onReserve: () => void }) => {
   const [activeImage, setActiveImage] = useState(room.images[0]);
 
   return (
@@ -197,19 +196,19 @@ const RoomSection = ({ room, reversed, onReserve }: { room: any, reversed: boole
       {/* Gallery */}
       <div className="w-full lg:w-1/2 flex flex-col gap-4">
         <div className="relative aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl">
-          <img src={activeImage} alt={room.name} className="w-full h-full object-cover transition-transform duration-700 hover:scale-105" />
+          <img src={activeImage} alt={room.name} className="w-full h-full object-cover transition-transform duration-700 hover:scale-105" loading="lazy" />
           <div className="absolute top-6 left-6 bg-white/90 backdrop-blur-md px-4 py-2 rounded-full font-bold text-primary-900 shadow-lg">
             {room.price.toLocaleString()} FCFA <span className="font-normal text-sm text-gray-600">/ nuit</span>
           </div>
         </div>
         <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
-          {room.images.map((img: string, i: number) => (
-            <button 
-              key={i} 
+          {room.images.map((img, i) => (
+            <button
+              key={i}
               onClick={() => setActiveImage(img)}
               className={`relative w-24 h-24 rounded-xl overflow-hidden shrink-0 border-2 transition-all ${activeImage === img ? 'border-primary-600 shadow-md scale-105' : 'border-transparent opacity-70 hover:opacity-100'}`}
             >
-              <img src={img} alt={`${room.name} view ${i + 1}`} className="w-full h-full object-cover" />
+              <img src={img} alt={`${room.name} vue ${i + 1}`} className="w-full h-full object-cover" loading="lazy" />
             </button>
           ))}
         </div>
@@ -219,11 +218,11 @@ const RoomSection = ({ room, reversed, onReserve }: { room: any, reversed: boole
       <div className="w-full lg:w-1/2 flex flex-col justify-center">
         <h3 className="text-3xl md:text-4xl font-heading font-bold text-gray-900 mb-4">{room.name}</h3>
         <p className="text-gray-600 text-lg leading-relaxed mb-8">{room.description}</p>
-        
+
         <div className="mb-8">
           <h4 className="text-sm font-bold text-primary-900 uppercase tracking-wider mb-4">Équipements Inclus</h4>
           <ul className="grid grid-cols-2 gap-y-3 gap-x-6">
-            {room.amenities.map((amenity: string, i: number) => (
+            {room.amenities.map((amenity, i) => (
               <li key={i} className="flex items-center gap-2 text-gray-700">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary-500 shrink-0"></div>
                 {amenity}
@@ -232,7 +231,7 @@ const RoomSection = ({ room, reversed, onReserve }: { room: any, reversed: boole
           </ul>
         </div>
 
-        <button 
+        <button
           onClick={onReserve}
           className="bg-gray-900 hover:bg-primary-600 text-white px-8 py-4 rounded-xl font-medium transition-colors self-start shadow-xl shadow-gray-900/10 flex items-center gap-2"
         >
@@ -243,7 +242,7 @@ const RoomSection = ({ room, reversed, onReserve }: { room: any, reversed: boole
   );
 };
 
-// Extracted Reservation Modal
+// Reservation Modal
 const ReservationModal = ({ onClose, initialRoomId }: { onClose: () => void, initialRoomId: string | null }) => {
   const { addReservation } = useReservations();
   const [step, setStep] = useState<1 | 2>(1);
@@ -258,7 +257,6 @@ const ReservationModal = ({ onClose, initialRoomId }: { onClose: () => void, ini
     paymentMethod: 'Orange Money' as PaymentMethod
   });
 
-  // Basic validation
   const isValid = formData.clientName && formData.phone && formData.checkIn && formData.checkOut;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -281,7 +279,7 @@ const ReservationModal = ({ onClose, initialRoomId }: { onClose: () => void, ini
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
       <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={step === 1 ? onClose : undefined}></div>
-      
+
       <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto z-10">
         <button onClick={onClose} className="absolute top-6 right-6 text-gray-400 hover:text-gray-900 z-10 bg-white/80 rounded-full p-1">
           <X size={24} />
@@ -322,11 +320,23 @@ const ReservationModal = ({ onClose, initialRoomId }: { onClose: () => void, ini
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700">Date d'arrivée *</label>
-                  <input required type="date" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all" value={formData.checkIn} onChange={e => setFormData({...formData, checkIn: e.target.value})} />
+                  <input
+                    required type="date"
+                    min={today}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all"
+                    value={formData.checkIn}
+                    onChange={e => setFormData({...formData, checkIn: e.target.value, checkOut: ''})}
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700">Date de départ *</label>
-                  <input required type="date" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all" value={formData.checkOut} onChange={e => setFormData({...formData, checkOut: e.target.value})} />
+                  <input
+                    required type="date"
+                    min={formData.checkIn || today}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all"
+                    value={formData.checkOut}
+                    onChange={e => setFormData({...formData, checkOut: e.target.value})}
+                  />
                 </div>
               </div>
 

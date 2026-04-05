@@ -1,19 +1,21 @@
 import { useState } from 'react';
-import { useReservations, Reservation } from '../hooks/useReservations';
+import { useReservations, Reservation, getNights } from '../hooks/useReservations';
 import { rooms } from '../data/rooms';
-import { Lock, LayoutDashboard, CalendarDays, DollarSign, Users, Clock, LogOut, Download, Plus, CreditCard, CheckCircle2, XCircle } from 'lucide-react';
+import { Lock, LayoutDashboard, CalendarDays, DollarSign, Users, Clock, LogOut, CheckCircle2, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
+
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD ?? 'admin123';
 
 export const AdminDashboard = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  
+
   const { reservations, updateStatus } = useReservations();
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === 'admin123') {
+    if (password === ADMIN_PASSWORD) {
       setIsAuthenticated(true);
       setError('');
     } else {
@@ -21,20 +23,20 @@ export const AdminDashboard = () => {
     }
   };
 
-  // Calculate Stats
   const totalReservations = reservations.length;
   const pendingReservations = reservations.filter(r => r.status === 'En attente').length;
-  
-  // Mock Revenue (sum of confirmed bookings price * 3 nights average for demo)
+
   const revenue = reservations
     .filter(r => r.status === 'Confirmé')
     .reduce((acc, r) => {
       const room = rooms.find(rm => rm.id === r.roomId);
-      return acc + (room ? room.price * 3 : 0); // Assuming 3 nights average for simplicity
+      const nights = getNights(r.checkIn, r.checkOut);
+      return acc + (room ? room.price * nights : 0);
     }, 0);
 
-  // Mock Occupancy Rate
-  const occupancyRate = 75; // static for demo
+  const occupancyRate = totalReservations === 0
+    ? 0
+    : Math.round((reservations.filter(r => r.status === 'Confirmé').length / totalReservations) * 100);
 
   if (!isAuthenticated) {
     return (
@@ -48,11 +50,11 @@ export const AdminDashboard = () => {
           </div>
           <h1 className="text-3xl font-heading font-bold text-center text-gray-900 mb-2">Espace Administrateur</h1>
           <p className="text-gray-500 text-center mb-8">Veuillez entrer le mot de passe pour accéder à la gestion de la Résidence Cheliel.</p>
-          
+
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <input 
-                type="password" 
+              <input
+                type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all text-center text-xl tracking-widest"
@@ -81,7 +83,7 @@ export const AdminDashboard = () => {
             <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-heading font-bold text-sm">RC</div>
             <div className="font-heading font-bold text-xl text-primary-900">Admin Cheliel</div>
           </Link>
-          
+
           <nav className="space-y-2 flex-1">
             <a href="#" className="flex items-center gap-3 px-4 py-3 bg-primary-50 text-primary-700 rounded-xl font-medium">
               <LayoutDashboard size={20} /> Tableau de Bord
@@ -94,7 +96,7 @@ export const AdminDashboard = () => {
             </a>
           </nav>
         </div>
-        
+
         <div className="mt-auto p-6 border-t border-gray-100">
           <button onClick={() => setIsAuthenticated(false)} className="flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl font-medium transition-colors w-full">
             <LogOut size={20} /> Déconnexion
@@ -117,30 +119,19 @@ export const AdminDashboard = () => {
             <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Vue d'ensemble</h1>
             <p className="text-gray-500">Gérez vos réservations et vos revenus.</p>
           </div>
-          <div className="flex gap-3">
-            <button className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 transition-colors text-sm">
-              <Download size={16} /> Exporter CSV
-            </button>
-            <button className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-700 transition-colors shadow-md text-sm">
-              <Plus size={16} /> Ajouter Chambre
-            </button>
-            <button className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 transition-colors text-sm">
-              <CreditCard size={16} /> Paiements
-            </button>
-          </div>
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
           <StatCard title="Réservations" value={totalReservations.toString()} icon={CalendarDays} color="blue" />
-          <StatCard title="Revenus (Mois)" value={`${revenue.toLocaleString()} F`} icon={DollarSign} color="green" />
+          <StatCard title="Revenus (Confirmés)" value={`${revenue.toLocaleString()} F`} icon={DollarSign} color="green" />
           <StatCard title="Taux d'occupation" value={`${occupancyRate}%`} icon={Users} color="purple" />
           <StatCard title="En attente" value={pendingReservations.toString()} icon={Clock} color="orange" />
         </div>
 
         {/* Table */}
         <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+          <div className="p-6 border-b border-gray-100">
             <h2 className="text-xl font-heading font-bold text-gray-900">Réservations Récentes</h2>
           </div>
           <div className="overflow-x-auto">
@@ -158,6 +149,7 @@ export const AdminDashboard = () => {
               <tbody className="divide-y divide-gray-100">
                 {reservations.map((res: Reservation) => {
                   const room = rooms.find(r => r.id === res.roomId);
+                  const nights = getNights(res.checkIn, res.checkOut);
                   return (
                     <tr key={res.id} className="hover:bg-gray-50/50 transition-colors">
                       <td className="px-6 py-4">
@@ -166,7 +158,7 @@ export const AdminDashboard = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-gray-900">{room?.name || 'Inconnue'}</div>
-                        <div className="text-sm text-gray-500">{room?.price.toLocaleString()} F/n</div>
+                        <div className="text-sm text-gray-500">{room?.price.toLocaleString()} F/n · {nights} nuit{nights > 1 ? 's' : ''}</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-gray-900">{new Date(res.checkIn).toLocaleDateString('fr-FR')}</div>
@@ -181,8 +173,8 @@ export const AdminDashboard = () => {
                       </td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
-                          res.status === 'Confirmé' ? 'bg-green-100 text-green-800' : 
-                          res.status === 'En attente' ? 'bg-yellow-100 text-yellow-800' : 
+                          res.status === 'Confirmé' ? 'bg-green-100 text-green-800' :
+                          res.status === 'En attente' ? 'bg-yellow-100 text-yellow-800' :
                           'bg-red-100 text-red-800'
                         }`}>
                           {res.status === 'Confirmé' && <CheckCircle2 size={12} />}
