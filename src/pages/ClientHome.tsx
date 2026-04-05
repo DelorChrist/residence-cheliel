@@ -1,22 +1,29 @@
-import { useState, useEffect } from 'react';
-import { Menu, X, MapPin, Phone, Star, Wifi, Wind, CheckCircle2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Menu, X, MapPin, Phone, Star, Wifi, Wind, CheckCircle2, ArrowUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { rooms, Room } from '../data/rooms';
 import { useReservations, PaymentMethod } from '../hooks/useReservations';
 
 const today = new Date().toISOString().split('T')[0];
 
+
 export const ClientHome = () => {
   const [isScrolled, setIsScrolled] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
-    const handleScroll = () => setIsScrolled(window.scrollY > 50);
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 50);
+      setShowScrollTop(window.scrollY > 400);
+    };
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  const scrollToTop = useCallback(() => window.scrollTo({ top: 0, behavior: 'smooth' }), []);
 
   const openReservationModal = (roomId?: string) => {
     setSelectedRoomId(roomId ?? null);
@@ -77,12 +84,12 @@ export const ClientHome = () => {
         </div>
 
         <div className="container relative z-10 mx-auto px-6 text-center mt-20">
-          <p className="text-primary-200 font-medium tracking-[0.2em] uppercase text-sm mb-4">L'art de vivre à l'ivoirienne</p>
+          <p className="text-primary-200 font-medium tracking-[0.2em] uppercase text-sm mb-4">L'art de vivre à Yamoussoukro</p>
           <h1 className="text-5xl md:text-7xl font-heading font-bold text-white mb-6 leading-tight">
-            Votre oasis de luxe <br /> au cœur d'Abidjan
+            Votre havre de paix <br /> au cœur de Yakro
           </h1>
           <p className="text-xl text-white/90 mb-10 max-w-2xl mx-auto font-light">
-            Découvrez nos résidences meublées haut de gamme, alliant confort moderne et élégance pour des séjours inoubliables.
+            Venez vivre l'élégance des résidences Cheliel à Yamoussoukro, Morofé à 100m du foyer des jeunes.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
@@ -99,7 +106,7 @@ export const ClientHome = () => {
       </section>
 
       {/* Services Preview */}
-      <section id="services" className="py-20 bg-white">
+      <section id="services" className="py-10 bg-white">
         <div className="container mx-auto px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
             {[
@@ -120,16 +127,54 @@ export const ClientHome = () => {
         </div>
       </section>
 
-      {/* Rooms Section */}
-      <section id="chambres" className="py-24 bg-[#faf9f8]">
+      {/* About Section */}
+      <section className="py-14 bg-white">
         <div className="container mx-auto px-6">
-          <div className="text-center max-w-3xl mx-auto mb-16">
+          <div className="flex flex-col lg:flex-row gap-10 items-center">
+            <div className="w-full lg:w-1/2 grid grid-cols-2 gap-4">
+              <div className="aspect-[3/4] rounded-3xl overflow-hidden shadow-xl">
+                <img src="/images/piscine.jpg" alt="Piscine Résidence Cheliel" className="w-full h-full object-cover" loading="lazy" />
+              </div>
+              <div className="aspect-[3/4] rounded-3xl overflow-hidden shadow-xl mt-10">
+                <img src="/images/bar.jpeg" alt="Bar Résidence Cheliel" className="w-full h-full object-cover" loading="lazy" />
+              </div>
+            </div>
+            <div className="w-full lg:w-1/2">
+              <p className="text-primary-600 font-medium tracking-widest uppercase text-sm mb-3">Notre Histoire</p>
+              <h2 className="text-4xl md:text-5xl font-heading font-bold text-gray-900 mb-6">Un cadre d'exception à Yamoussoukro</h2>
+              <p className="text-gray-600 text-lg leading-relaxed mb-6">
+                Nichée à Morofé, à 100m du foyer des jeunes, la Résidence Cheliel est bien plus qu'un simple hébergement. C'est une expérience de vie alliant le luxe discret à la chaleur de l'hospitalité ivoirienne.
+              </p>
+              <p className="text-gray-600 text-lg leading-relaxed mb-10">
+                Profitez de notre piscine, de notre bar lounge et de nos espaces communs soigneusement aménagés pour faire de votre séjour un moment inoubliable.
+              </p>
+              <div className="grid grid-cols-3 gap-6 pt-8 border-t border-gray-100">
+                {[
+                  { value: '3+', label: 'Types de suites' },
+                  { value: '100%', label: 'Clients satisfaits' },
+                  { value: '24/7', label: 'Service disponible' },
+                ].map((stat, i) => (
+                  <div key={i} className="text-center">
+                    <div className="text-3xl font-heading font-bold text-primary-600 mb-1">{stat.value}</div>
+                    <div className="text-sm text-gray-500">{stat.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Rooms Section */}
+      <section id="chambres" className="py-14 bg-[#faf9f8]">
+        <div className="container mx-auto px-6">
+          <div className="text-center max-w-3xl mx-auto mb-10">
             <p className="text-primary-600 font-medium tracking-widest uppercase text-sm mb-3">Hébergement</p>
             <h2 className="text-4xl md:text-5xl font-heading font-bold text-gray-900 mb-6">Nos Suites & Chambres</h2>
             <p className="text-gray-600 text-lg">Chaque espace est pensé pour votre bien-être, avec des équipements modernes et une décoration raffinée inspirée de l'élégance africaine.</p>
           </div>
 
-          <div className="space-y-20">
+          <div className="space-y-12">
             {rooms.map((room, index) => (
               <RoomSection key={room.id} room={room} reversed={index % 2 !== 0} onReserve={() => openReservationModal(room.id)} />
             ))}
@@ -145,7 +190,7 @@ export const ClientHome = () => {
               <div className="w-10 h-10 bg-primary-600 rounded-lg flex items-center justify-center text-white font-heading font-bold text-xl">RC</div>
               <div className="font-heading font-bold text-2xl text-white">Résidence Cheliel</div>
             </div>
-            <p className="text-primary-200/80 max-w-sm mb-6">Votre adresse de prestige pour un séjour d'exception à Abidjan. Le luxe sobre et l'hospitalité ivoirienne vous attendent.</p>
+            <p className="text-primary-200/80 max-w-sm mb-6">Venez vivre l'élégance des résidences Cheliel à Yamoussoukro. Un havre de paix à Morofé, à 100m du foyer des jeunes.</p>
           </div>
 
           <div>
@@ -153,11 +198,11 @@ export const ClientHome = () => {
             <ul className="space-y-4 text-primary-200/80">
               <li className="flex items-start gap-3">
                 <MapPin size={20} className="shrink-0 text-primary-500 mt-1" />
-                <span>Cocody Riviera Palmeraie,<br />Abidjan, Côte d'Ivoire</span>
+                <span>Morofé, à 100m du foyer des jeunes,<br />Yamoussoukro, Côte d'Ivoire</span>
               </li>
               <li className="flex items-center gap-3">
                 <Phone size={20} className="shrink-0 text-primary-500" />
-                <span>+225 07 00 00 00 00</span>
+                <a href="tel:+2250779277924" className="hover:text-white transition-colors">+225 07 79 27 79 24</a>
               </li>
             </ul>
           </div>
@@ -167,8 +212,23 @@ export const ClientHome = () => {
             <ul className="space-y-3 text-primary-200/80">
               <li><a href="#accueil" className="hover:text-white transition-colors">Accueil</a></li>
               <li><a href="#chambres" className="hover:text-white transition-colors">Hébergement</a></li>
-              <li><Link to="/admin" className="hover:text-white transition-colors">Espace Admin</Link></li>
+              <li><a href="https://www.lesresidencescheliel.com" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Site Web</a></li>
+              <li><a href="https://www.booking.com/Share-Ei1HTs" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">Booking.com</a></li>
             </ul>
+            <div className="mt-8">
+              <h4 className="text-white font-heading font-bold mb-4 text-lg">Suivez-nous</h4>
+              <div className="flex items-center gap-4">
+                <a href="#" aria-label="Facebook" className="w-10 h-10 rounded-full bg-primary-800 hover:bg-primary-700 flex items-center justify-center transition-colors overflow-hidden">
+                  <img src="/images/facebook.png" alt="Facebook" className="w-5 h-5 object-contain" />
+                </a>
+                <a href="https://www.instagram.com/residence_cheliel" aria-label="Instagram" target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-primary-800 hover:bg-primary-700 flex items-center justify-center transition-colors overflow-hidden">
+                  <img src="/images/instagram.jpeg" alt="Instagram" className="w-5 h-5 object-contain" />
+                </a>
+                <a href="https://wa.me/2250779277924" aria-label="WhatsApp" target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-primary-800 hover:bg-primary-700 flex items-center justify-center transition-colors overflow-hidden">
+                  <img src="/images/whatsapp.jpeg" alt="WhatsApp" className="w-5 h-5 object-contain" />
+                </a>
+              </div>
+            </div>
           </div>
         </div>
         <div className="container mx-auto px-6 mt-16 pt-8 border-t border-primary-800 text-center text-primary-200/60 text-sm">
@@ -183,6 +243,26 @@ export const ClientHome = () => {
           initialRoomId={selectedRoomId}
         />
       )}
+
+      {/* Floating Buttons */}
+      <button
+        onClick={scrollToTop}
+        aria-label="Remonter en haut"
+        className={`fixed bottom-6 left-6 z-50 w-12 h-12 rounded-full bg-primary-600 hover:bg-primary-700 text-white shadow-lg flex items-center justify-center transition-all duration-300 ${
+          showScrollTop ? 'opacity-100 scale-100' : 'opacity-0 scale-75 pointer-events-none'
+        }`}
+      >
+        <ArrowUp size={20} />
+      </button>
+      <a
+        href="https://wa.me/2250779277924"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Contacter via WhatsApp"
+        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full shadow-lg hover:scale-110 transition-transform overflow-hidden"
+      >
+        <img src="/images/whatsapp.jpeg" alt="WhatsApp" className="w-full h-full object-cover" />
+      </a>
     </div>
   );
 };

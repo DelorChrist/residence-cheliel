@@ -96,9 +96,16 @@ export const useReservations = () => {
     saveToStorage(updated);
   };
 
+  const deleteReservation = (id: string) => {
+    const updated = reservations.filter(r => r.id !== id);
+    setReservations(updated);
+    saveToStorage(updated);
+  };
+
   return {
     reservations,
     addReservation,
-    updateStatus
+    updateStatus,
+    deleteReservation
   };
 };

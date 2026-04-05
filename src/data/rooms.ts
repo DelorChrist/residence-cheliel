@@ -14,7 +14,7 @@ export const rooms: Room[] = [
     price: 45000,
     description: "L'élégance absolue avec un grand espace salon, chambre séparée et une décoration raffinée pour un séjour inoubliable.",
     amenities: ["Grand lit King Size", "Salon privé", "Climatisation", "Smart TV 55\"", "Wi-Fi Haut Débit", "Cuisine équipée", "Salle de bain en marbre"],
-    images: ["/images/suite.jpg", "/images/hero.jpg"] // Using hero image as an alternate angle for demo
+    images: ["/images/suite.jpg", "/images/chambre1.jpg"]
   },
   {
     id: "studio-confort",

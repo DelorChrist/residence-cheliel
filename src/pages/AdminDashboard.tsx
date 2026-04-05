@@ -1,17 +1,47 @@
-import { useState } from 'react';
-import { useReservations, Reservation, getNights } from '../hooks/useReservations';
+import React, { useState } from 'react';
+import { useReservations, Reservation, getNights, ReservationStatus } from '../hooks/useReservations';
 import { rooms } from '../data/rooms';
-import { Lock, LayoutDashboard, CalendarDays, DollarSign, Users, Clock, LogOut, CheckCircle2, XCircle } from 'lucide-react';
+import { Lock, LayoutDashboard, CalendarDays, DollarSign, Users, Clock, LogOut, CheckCircle2, XCircle, Download, LucideIcon, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD ?? 'admin123';
+
+const exportCSV = (reservations: Reservation[]) => {
+  const headers = ['ID', 'Client', 'Téléphone', 'Email', 'Chambre', 'Arrivée', 'Départ', 'Nuits', 'Paiement', 'Statut', 'Créé le'];
+  const rows = reservations.map(r => {
+    const room = rooms.find(rm => rm.id === r.roomId);
+    const nights = getNights(r.checkIn, r.checkOut);
+    return [
+      r.id,
+      r.clientName,
+      r.phone,
+      r.email ?? '',
+      room?.name ?? r.roomId,
+      r.checkIn,
+      r.checkOut,
+      nights,
+      r.paymentMethod,
+      r.status,
+      new Date(r.createdAt).toLocaleDateString('fr-FR')
+    ].join(';');
+  });
+  const csv = [headers.join(';'), ...rows].join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `reservations-cheliel-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
 export const AdminDashboard = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [statusFilter, setStatusFilter] = useState<ReservationStatus | 'Tous'>('Tous');
 
-  const { reservations, updateStatus } = useReservations();
+  const { reservations, updateStatus, deleteReservation } = useReservations();
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +67,10 @@ export const AdminDashboard = () => {
   const occupancyRate = totalReservations === 0
     ? 0
     : Math.round((reservations.filter(r => r.status === 'Confirmé').length / totalReservations) * 100);
+
+  const filteredReservations = statusFilter === 'Tous'
+    ? reservations
+    : reservations.filter(r => r.status === statusFilter);
 
   if (!isAuthenticated) {
     return (
@@ -84,7 +118,7 @@ export const AdminDashboard = () => {
             <div className="font-heading font-bold text-xl text-primary-900">Admin Cheliel</div>
           </Link>
 
-          <nav className="space-y-2 flex-1">
+          <nav className="space-y-2">
             <a href="#" className="flex items-center gap-3 px-4 py-3 bg-primary-50 text-primary-700 rounded-xl font-medium">
               <LayoutDashboard size={20} /> Tableau de Bord
             </a>
@@ -119,6 +153,12 @@ export const AdminDashboard = () => {
             <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Vue d'ensemble</h1>
             <p className="text-gray-500">Gérez vos réservations et vos revenus.</p>
           </div>
+          <button
+            onClick={() => exportCSV(reservations)}
+            className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 transition-colors text-sm"
+          >
+            <Download size={16} /> Exporter CSV
+          </button>
         </div>
 
         {/* Stats */}
@@ -131,8 +171,23 @@ export const AdminDashboard = () => {
 
         {/* Table */}
         <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-100">
-            <h2 className="text-xl font-heading font-bold text-gray-900">Réservations Récentes</h2>
+          <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <h2 className="text-xl font-heading font-bold text-gray-900">Réservations</h2>
+            <div className="flex gap-2 flex-wrap">
+              {(['Tous', 'En attente', 'Confirmé', 'Annulé'] as const).map(s => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    statusFilter === s
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -147,7 +202,7 @@ export const AdminDashboard = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {reservations.map((res: Reservation) => {
+                {filteredReservations.map((res: Reservation) => {
                   const room = rooms.find(r => r.id === res.roomId);
                   const nights = getNights(res.checkIn, res.checkOut);
                   return (
@@ -194,14 +249,23 @@ export const AdminDashboard = () => {
                             </button>
                           </>
                         )}
+                        {res.status === 'Annulé' && (
+                          <button
+                            onClick={() => { if (confirm('Supprimer définitivement cette réservation ?')) deleteReservation(res.id); }}
+                            className="text-gray-400 hover:text-red-600 bg-gray-50 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                            title="Supprimer"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
                 })}
-                {reservations.length === 0 && (
+                {filteredReservations.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                      Aucune réservation pour le moment.
+                      Aucune réservation{statusFilter !== 'Tous' ? ` avec le statut "${statusFilter}"` : ''}.
                     </td>
                   </tr>
                 )}
@@ -214,7 +278,7 @@ export const AdminDashboard = () => {
   );
 };
 
-const StatCard = ({ title, value, icon: Icon, color }: { title: string, value: string, icon: any, color: 'blue' | 'green' | 'purple' | 'orange' }) => {
+const StatCard = ({ title, value, icon: Icon, color }: { title: string, value: string, icon: LucideIcon, color: 'blue' | 'green' | 'purple' | 'orange' }) => {
   const colorStyles = {
     blue: 'bg-blue-50 text-blue-600',
     green: 'bg-green-50 text-green-600',
