@@ -1,0 +1,244 @@
+import { useState } from 'react';
+import { useReservations, Reservation } from '../hooks/useReservations';
+import { rooms } from '../data/rooms';
+import { Lock, LayoutDashboard, CalendarDays, DollarSign, Users, Clock, LogOut, Download, Plus, CreditCard, CheckCircle2, XCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
+
+export const AdminDashboard = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  
+  const { reservations, updateStatus } = useReservations();
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password === 'admin123') {
+      setIsAuthenticated(true);
+      setError('');
+    } else {
+      setError('Mot de passe incorrect');
+    }
+  };
+
+  // Calculate Stats
+  const totalReservations = reservations.length;
+  const pendingReservations = reservations.filter(r => r.status === 'En attente').length;
+  
+  // Mock Revenue (sum of confirmed bookings price * 3 nights average for demo)
+  const revenue = reservations
+    .filter(r => r.status === 'Confirmé')
+    .reduce((acc, r) => {
+      const room = rooms.find(rm => rm.id === r.roomId);
+      return acc + (room ? room.price * 3 : 0); // Assuming 3 nights average for simplicity
+    }, 0);
+
+  // Mock Occupancy Rate
+  const occupancyRate = 75; // static for demo
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#f4f0ec] flex items-center justify-center p-4">
+        <div className="bg-white p-8 md:p-10 rounded-3xl shadow-2xl max-w-md w-full relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-2 bg-primary-600"></div>
+          <div className="flex justify-center mb-6">
+            <div className="w-16 h-16 bg-primary-100 rounded-2xl flex items-center justify-center text-primary-600">
+              <Lock size={32} />
+            </div>
+          </div>
+          <h1 className="text-3xl font-heading font-bold text-center text-gray-900 mb-2">Espace Administrateur</h1>
+          <p className="text-gray-500 text-center mb-8">Veuillez entrer le mot de passe pour accéder à la gestion de la Résidence Cheliel.</p>
+          
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div>
+              <input 
+                type="password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all text-center text-xl tracking-widest"
+                placeholder="••••••••"
+              />
+              {error && <p className="text-red-500 text-sm mt-2 text-center">{error}</p>}
+            </div>
+            <button type="submit" className="w-full bg-primary-600 hover:bg-primary-700 text-white py-3 rounded-xl font-medium transition-colors shadow-lg shadow-primary-900/20">
+              Connexion
+            </button>
+          </form>
+          <div className="mt-8 text-center">
+            <Link to="/" className="text-sm text-gray-500 hover:text-primary-600 transition-colors">Retour au site public</Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Sidebar */}
+      <aside className="w-64 bg-white border-r border-gray-100 hidden md:flex flex-col h-screen sticky top-0">
+        <div className="p-6">
+          <Link to="/" className="flex items-center gap-2 mb-10">
+            <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-heading font-bold text-sm">RC</div>
+            <div className="font-heading font-bold text-xl text-primary-900">Admin Cheliel</div>
+          </Link>
+          
+          <nav className="space-y-2 flex-1">
+            <a href="#" className="flex items-center gap-3 px-4 py-3 bg-primary-50 text-primary-700 rounded-xl font-medium">
+              <LayoutDashboard size={20} /> Tableau de Bord
+            </a>
+            <a href="#" className="flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl font-medium transition-colors">
+              <CalendarDays size={20} /> Réservations
+            </a>
+            <a href="#" className="flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl font-medium transition-colors">
+              <Users size={20} /> Clients
+            </a>
+          </nav>
+        </div>
+        
+        <div className="mt-auto p-6 border-t border-gray-100">
+          <button onClick={() => setIsAuthenticated(false)} className="flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl font-medium transition-colors w-full">
+            <LogOut size={20} /> Déconnexion
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 p-6 lg:p-10 overflow-x-hidden">
+        {/* Header mobile */}
+        <div className="md:hidden flex justify-between items-center mb-8 bg-white p-4 rounded-2xl shadow-sm">
+          <div className="font-heading font-bold text-xl text-primary-900">Admin Cheliel</div>
+          <button onClick={() => setIsAuthenticated(false)} className="p-2 text-red-600 bg-red-50 rounded-lg">
+            <LogOut size={20} />
+          </button>
+        </div>
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
+          <div>
+            <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Vue d'ensemble</h1>
+            <p className="text-gray-500">Gérez vos réservations et vos revenus.</p>
+          </div>
+          <div className="flex gap-3">
+            <button className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 transition-colors text-sm">
+              <Download size={16} /> Exporter CSV
+            </button>
+            <button className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-700 transition-colors shadow-md text-sm">
+              <Plus size={16} /> Ajouter Chambre
+            </button>
+            <button className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 transition-colors text-sm">
+              <CreditCard size={16} /> Paiements
+            </button>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+          <StatCard title="Réservations" value={totalReservations.toString()} icon={CalendarDays} color="blue" />
+          <StatCard title="Revenus (Mois)" value={`${revenue.toLocaleString()} F`} icon={DollarSign} color="green" />
+          <StatCard title="Taux d'occupation" value={`${occupancyRate}%`} icon={Users} color="purple" />
+          <StatCard title="En attente" value={pendingReservations.toString()} icon={Clock} color="orange" />
+        </div>
+
+        {/* Table */}
+        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+            <h2 className="text-xl font-heading font-bold text-gray-900">Réservations Récentes</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-50 text-gray-500 text-sm uppercase tracking-wider">
+                  <th className="px-6 py-4 font-medium">Client</th>
+                  <th className="px-6 py-4 font-medium">Chambre</th>
+                  <th className="px-6 py-4 font-medium">Dates</th>
+                  <th className="px-6 py-4 font-medium">Paiement</th>
+                  <th className="px-6 py-4 font-medium">Statut</th>
+                  <th className="px-6 py-4 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {reservations.map((res: Reservation) => {
+                  const room = rooms.find(r => r.id === res.roomId);
+                  return (
+                    <tr key={res.id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="font-medium text-gray-900">{res.clientName}</div>
+                        <div className="text-sm text-gray-500">{res.phone}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-gray-900">{room?.name || 'Inconnue'}</div>
+                        <div className="text-sm text-gray-500">{room?.price.toLocaleString()} F/n</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-gray-900">{new Date(res.checkIn).toLocaleDateString('fr-FR')}</div>
+                        <div className="text-sm text-gray-500">au {new Date(res.checkOut).toLocaleDateString('fr-FR')}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${
+                          res.paymentMethod === 'Orange Money' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {res.paymentMethod}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
+                          res.status === 'Confirmé' ? 'bg-green-100 text-green-800' : 
+                          res.status === 'En attente' ? 'bg-yellow-100 text-yellow-800' : 
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {res.status === 'Confirmé' && <CheckCircle2 size={12} />}
+                          {res.status === 'En attente' && <Clock size={12} />}
+                          {res.status === 'Annulé' && <XCircle size={12} />}
+                          {res.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right space-x-2">
+                        {res.status === 'En attente' && (
+                          <>
+                            <button onClick={() => updateStatus(res.id, 'Confirmé')} className="text-green-600 hover:text-green-900 bg-green-50 p-2 rounded-lg transition-colors" title="Confirmer">
+                              <CheckCircle2 size={18} />
+                            </button>
+                            <button onClick={() => updateStatus(res.id, 'Annulé')} className="text-red-600 hover:text-red-900 bg-red-50 p-2 rounded-lg transition-colors" title="Annuler">
+                              <XCircle size={18} />
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {reservations.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                      Aucune réservation pour le moment.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+};
+
+const StatCard = ({ title, value, icon: Icon, color }: { title: string, value: string, icon: any, color: 'blue' | 'green' | 'purple' | 'orange' }) => {
+  const colorStyles = {
+    blue: 'bg-blue-50 text-blue-600',
+    green: 'bg-green-50 text-green-600',
+    purple: 'bg-purple-50 text-purple-600',
+    orange: 'bg-orange-50 text-orange-600',
+  };
+
+  return (
+    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+      <div className={`w-14 h-14 rounded-xl flex items-center justify-center shrink-0 ${colorStyles[color]}`}>
+        <Icon size={24} />
+      </div>
+      <div>
+        <p className="text-gray-500 text-sm font-medium mb-1">{title}</p>
+        <p className="text-2xl font-bold text-gray-900">{value}</p>
+      </div>
+    </div>
+  );
+};
