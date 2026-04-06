@@ -193,15 +193,18 @@ const RoomSection = ({ room, reversed, onReserve }: { room: Room, reversed: bool
   return (
     <div className={`flex flex-col ${reversed ? 'lg:flex-row-reverse' : 'lg:flex-row'} gap-12 items-center`}>
       <div className="w-full lg:w-1/2 flex flex-col gap-4">
-        <div className="relative aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl">
-          <img src={activeImage} alt={room.name} className="w-full h-full object-cover transition-transform duration-700 hover:scale-105" loading="lazy" />
+        <Link to={`/chambres/${room.id}`} className="relative aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl block group">
+          <img src={activeImage} alt={room.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy" />
           <div className="absolute top-5 left-5 bg-white/95 backdrop-blur-md px-4 py-2 rounded-full font-bold text-primary-900 shadow-lg text-sm">
             {room.price.toLocaleString()} FCFA <span className="font-normal text-gray-500">/ 24h</span>
           </div>
           <div className="absolute top-5 right-5 bg-primary-600 text-white px-3 py-1.5 rounded-full text-xs font-medium shadow-lg">
             {room.capacity}
           </div>
-        </div>
+          <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+            <span className="bg-white text-primary-700 font-medium px-5 py-2 rounded-full text-sm shadow-lg">Voir les détails</span>
+          </div>
+        </Link>
         <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
           {room.images.map((img, i) => (
             <button
@@ -216,7 +219,9 @@ const RoomSection = ({ room, reversed, onReserve }: { room: Room, reversed: bool
       </div>
 
       <div className="w-full lg:w-1/2 flex flex-col justify-center">
-        <h3 className="text-2xl md:text-4xl font-heading font-bold text-gray-900 mb-4">{room.name}</h3>
+        <h3 className="text-2xl md:text-4xl font-heading font-bold text-gray-900 mb-4">
+          <Link to={`/chambres/${room.id}`} className="hover:text-primary-600 transition-colors">{room.name}</Link>
+        </h3>
         <p className="text-gray-600 text-lg leading-loose mb-8">{room.description}</p>
         <div className="mb-8">
           <h4 className="text-xs font-bold text-primary-900 uppercase tracking-widest mb-4">Équipements Inclus</h4>

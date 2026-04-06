@@ -48,8 +48,8 @@ export const ChambresPage = () => {
                 className="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 group"
                 style={{ animationDelay: `${i * 100}ms` }}
               >
-                {/* Image */}
-                <div className="relative aspect-[16/10] overflow-hidden">
+                {/* Image cliquable */}
+                <Link to={`/chambres/${room.id}`} className="block relative aspect-[16/10] overflow-hidden">
                   <img
                     src={room.images[0]}
                     alt={room.name}
@@ -63,12 +63,12 @@ export const ChambresPage = () => {
                   <div className="absolute top-4 right-4 bg-primary-600 text-white px-3 py-1.5 rounded-full text-xs font-medium shadow-md">
                     {room.count} disponibles
                   </div>
-                </div>
+                </Link>
 
                 {/* Content */}
                 <div className="p-6">
                   <div className="flex items-start justify-between mb-3">
-                    <h2 className="text-xl md:text-2xl font-heading font-bold text-gray-900">{room.name}</h2>
+                    <Link to={`/chambres/${room.id}`} className="text-xl md:text-2xl font-heading font-bold text-gray-900 hover:text-primary-600 transition-colors">{room.name}</Link>
                     <div className="flex items-center gap-1.5 text-gray-500 text-sm shrink-0 ml-4 bg-primary-50 px-3 py-1 rounded-full">
                       <Users size={14} className="text-primary-500" />
                       {room.capacity}
