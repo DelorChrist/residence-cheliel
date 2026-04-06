@@ -19,6 +19,19 @@ export interface Reservation {
 
 const STORAGE_KEY = 'cheliel_reservations';
 
+export const getNights = (checkIn: string, checkOut: string): number => {
+  const diff = new Date(checkOut).getTime() - new Date(checkIn).getTime();
+  return Math.max(1, Math.round(diff / (1000 * 60 * 60 * 24)));
+};
+
+const saveToStorage = (data: Reservation[]) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.error('Impossible de sauvegarder les réservations:', e);
+  }
+};
+
 export const useReservations = () => {
   const [reservations, setReservations] = useState<Reservation[]>([]);
 
@@ -28,7 +41,8 @@ export const useReservations = () => {
       try {
         setReservations(JSON.parse(stored));
       } catch (e) {
-        console.error('Failed to parse reservations');
+        console.error('Données de réservations corrompues, réinitialisation.');
+        localStorage.removeItem(STORAGE_KEY);
       }
     } else {
       // Mock data for demo purposes
@@ -58,33 +72,40 @@ export const useReservations = () => {
         }
       ];
       setReservations(mock);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(mock));
+      saveToStorage(mock);
     }
   }, []);
 
   const addReservation = (res: Omit<Reservation, 'id' | 'status' | 'createdAt'>) => {
     const newReservation: Reservation = {
       ...res,
-      id: `RES-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
+      id: `RES-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
       status: 'En attente',
       createdAt: new Date().toISOString()
     };
     
     const updated = [newReservation, ...reservations];
     setReservations(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    saveToStorage(updated);
     return newReservation;
   };
 
   const updateStatus = (id: string, status: ReservationStatus) => {
     const updated = reservations.map(r => r.id === id ? { ...r, status } : r);
     setReservations(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    saveToStorage(updated);
+  };
+
+  const deleteReservation = (id: string) => {
+    const updated = reservations.filter(r => r.id !== id);
+    setReservations(updated);
+    saveToStorage(updated);
   };
 
   return {
     reservations,
     addReservation,
-    updateStatus
+    updateStatus,
+    deleteReservation
   };
 };

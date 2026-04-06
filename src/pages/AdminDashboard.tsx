@@ -1,19 +1,51 @@
-import { useState } from 'react';
-import { useReservations, Reservation } from '../hooks/useReservations';
+import React, { useState } from 'react';
+import { useReservations, Reservation, getNights, ReservationStatus } from '../hooks/useReservations';
 import { rooms } from '../data/rooms';
-import { Lock, LayoutDashboard, CalendarDays, DollarSign, Users, Clock, LogOut, Download, Plus, CreditCard, CheckCircle2, XCircle } from 'lucide-react';
+import { Lock, LayoutDashboard, CalendarDays, DollarSign, Users, Clock, LogOut, CheckCircle2, XCircle, Download, LucideIcon, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD ?? 'admin123';
+
+const exportCSV = (reservations: Reservation[]) => {
+  const headers = ['ID', 'Client', 'Téléphone', 'Email', 'Chambre', 'Arrivée', 'Départ', 'Nuits', 'Paiement', 'Statut', 'Créé le'];
+  const rows = reservations.map(r => {
+    const room = rooms.find(rm => rm.id === r.roomId);
+    const nights = getNights(r.checkIn, r.checkOut);
+    return [
+      r.id,
+      r.clientName,
+      r.phone,
+      r.email ?? '',
+      room?.name ?? r.roomId,
+      r.checkIn,
+      r.checkOut,
+      nights,
+      r.paymentMethod,
+      r.status,
+      new Date(r.createdAt).toLocaleDateString('fr-FR')
+    ].join(';');
+  });
+  const csv = [headers.join(';'), ...rows].join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `reservations-cheliel-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
 export const AdminDashboard = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  
-  const { reservations, updateStatus } = useReservations();
+  const [statusFilter, setStatusFilter] = useState<ReservationStatus | 'Tous'>('Tous');
+
+  const { reservations, updateStatus, deleteReservation } = useReservations();
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === 'admin123') {
+    if (password === ADMIN_PASSWORD) {
       setIsAuthenticated(true);
       setError('');
     } else {
@@ -21,20 +53,24 @@ export const AdminDashboard = () => {
     }
   };
 
-  // Calculate Stats
   const totalReservations = reservations.length;
   const pendingReservations = reservations.filter(r => r.status === 'En attente').length;
-  
-  // Mock Revenue (sum of confirmed bookings price * 3 nights average for demo)
+
   const revenue = reservations
     .filter(r => r.status === 'Confirmé')
     .reduce((acc, r) => {
       const room = rooms.find(rm => rm.id === r.roomId);
-      return acc + (room ? room.price * 3 : 0); // Assuming 3 nights average for simplicity
+      const nights = getNights(r.checkIn, r.checkOut);
+      return acc + (room ? room.price * nights : 0);
     }, 0);
 
-  // Mock Occupancy Rate
-  const occupancyRate = 75; // static for demo
+  const occupancyRate = totalReservations === 0
+    ? 0
+    : Math.round((reservations.filter(r => r.status === 'Confirmé').length / totalReservations) * 100);
+
+  const filteredReservations = statusFilter === 'Tous'
+    ? reservations
+    : reservations.filter(r => r.status === statusFilter);
 
   if (!isAuthenticated) {
     return (
@@ -48,11 +84,11 @@ export const AdminDashboard = () => {
           </div>
           <h1 className="text-3xl font-heading font-bold text-center text-gray-900 mb-2">Espace Administrateur</h1>
           <p className="text-gray-500 text-center mb-8">Veuillez entrer le mot de passe pour accéder à la gestion de la Résidence Cheliel.</p>
-          
+
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <input 
-                type="password" 
+              <input
+                type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all text-center text-xl tracking-widest"
@@ -81,8 +117,8 @@ export const AdminDashboard = () => {
             <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-heading font-bold text-sm">RC</div>
             <div className="font-heading font-bold text-xl text-primary-900">Admin Cheliel</div>
           </Link>
-          
-          <nav className="space-y-2 flex-1">
+
+          <nav className="space-y-2">
             <a href="#" className="flex items-center gap-3 px-4 py-3 bg-primary-50 text-primary-700 rounded-xl font-medium">
               <LayoutDashboard size={20} /> Tableau de Bord
             </a>
@@ -94,7 +130,7 @@ export const AdminDashboard = () => {
             </a>
           </nav>
         </div>
-        
+
         <div className="mt-auto p-6 border-t border-gray-100">
           <button onClick={() => setIsAuthenticated(false)} className="flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl font-medium transition-colors w-full">
             <LogOut size={20} /> Déconnexion
@@ -117,31 +153,41 @@ export const AdminDashboard = () => {
             <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Vue d'ensemble</h1>
             <p className="text-gray-500">Gérez vos réservations et vos revenus.</p>
           </div>
-          <div className="flex gap-3">
-            <button className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 transition-colors text-sm">
-              <Download size={16} /> Exporter CSV
-            </button>
-            <button className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-700 transition-colors shadow-md text-sm">
-              <Plus size={16} /> Ajouter Chambre
-            </button>
-            <button className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 transition-colors text-sm">
-              <CreditCard size={16} /> Paiements
-            </button>
-          </div>
+          <button
+            onClick={() => exportCSV(reservations)}
+            className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 transition-colors text-sm"
+          >
+            <Download size={16} /> Exporter CSV
+          </button>
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
           <StatCard title="Réservations" value={totalReservations.toString()} icon={CalendarDays} color="blue" />
-          <StatCard title="Revenus (Mois)" value={`${revenue.toLocaleString()} F`} icon={DollarSign} color="green" />
+          <StatCard title="Revenus (Confirmés)" value={`${revenue.toLocaleString()} F`} icon={DollarSign} color="green" />
           <StatCard title="Taux d'occupation" value={`${occupancyRate}%`} icon={Users} color="purple" />
           <StatCard title="En attente" value={pendingReservations.toString()} icon={Clock} color="orange" />
         </div>
 
         {/* Table */}
         <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-            <h2 className="text-xl font-heading font-bold text-gray-900">Réservations Récentes</h2>
+          <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <h2 className="text-xl font-heading font-bold text-gray-900">Réservations</h2>
+            <div className="flex gap-2 flex-wrap">
+              {(['Tous', 'En attente', 'Confirmé', 'Annulé'] as const).map(s => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    statusFilter === s
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -156,8 +202,9 @@ export const AdminDashboard = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {reservations.map((res: Reservation) => {
+                {filteredReservations.map((res: Reservation) => {
                   const room = rooms.find(r => r.id === res.roomId);
+                  const nights = getNights(res.checkIn, res.checkOut);
                   return (
                     <tr key={res.id} className="hover:bg-gray-50/50 transition-colors">
                       <td className="px-6 py-4">
@@ -166,7 +213,7 @@ export const AdminDashboard = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-gray-900">{room?.name || 'Inconnue'}</div>
-                        <div className="text-sm text-gray-500">{room?.price.toLocaleString()} F/n</div>
+                        <div className="text-sm text-gray-500">{room?.price.toLocaleString()} F/n · {nights} nuit{nights > 1 ? 's' : ''}</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-gray-900">{new Date(res.checkIn).toLocaleDateString('fr-FR')}</div>
@@ -181,8 +228,8 @@ export const AdminDashboard = () => {
                       </td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
-                          res.status === 'Confirmé' ? 'bg-green-100 text-green-800' : 
-                          res.status === 'En attente' ? 'bg-yellow-100 text-yellow-800' : 
+                          res.status === 'Confirmé' ? 'bg-green-100 text-green-800' :
+                          res.status === 'En attente' ? 'bg-yellow-100 text-yellow-800' :
                           'bg-red-100 text-red-800'
                         }`}>
                           {res.status === 'Confirmé' && <CheckCircle2 size={12} />}
@@ -202,14 +249,23 @@ export const AdminDashboard = () => {
                             </button>
                           </>
                         )}
+                        {res.status === 'Annulé' && (
+                          <button
+                            onClick={() => { if (confirm('Supprimer définitivement cette réservation ?')) deleteReservation(res.id); }}
+                            className="text-gray-400 hover:text-red-600 bg-gray-50 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                            title="Supprimer"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
                 })}
-                {reservations.length === 0 && (
+                {filteredReservations.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                      Aucune réservation pour le moment.
+                      Aucune réservation{statusFilter !== 'Tous' ? ` avec le statut "${statusFilter}"` : ''}.
                     </td>
                   </tr>
                 )}
@@ -222,7 +278,7 @@ export const AdminDashboard = () => {
   );
 };
 
-const StatCard = ({ title, value, icon: Icon, color }: { title: string, value: string, icon: any, color: 'blue' | 'green' | 'purple' | 'orange' }) => {
+const StatCard = ({ title, value, icon: Icon, color }: { title: string, value: string, icon: LucideIcon, color: 'blue' | 'green' | 'purple' | 'orange' }) => {
   const colorStyles = {
     blue: 'bg-blue-50 text-blue-600',
     green: 'bg-green-50 text-green-600',
