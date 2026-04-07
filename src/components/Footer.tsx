@@ -48,6 +48,7 @@ export const Footer = () => (
           <li><a href="#accueil" className="hover:text-white hover:pl-1 transition-all">Accueil</a></li>
           <li><a href="#chambres" className="hover:text-white hover:pl-1 transition-all">Hébergement</a></li>
           <li><Link to="/a-propos" className="hover:text-white hover:pl-1 transition-all">À Propos</Link></li>
+          <li><Link to="/mes-reservations" className="hover:text-white hover:pl-1 transition-all">Mes Réservations</Link></li>
           <li><a href="https://www.booking.com/Share-Ei1HTs" target="_blank" rel="noopener noreferrer" className="hover:text-white hover:pl-1 transition-all">Booking.com</a></li>
         </ul>
       </div>

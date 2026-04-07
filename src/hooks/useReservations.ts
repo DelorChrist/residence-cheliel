@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 
 export type PaymentMethod = 'Orange Money' | 'Wave';
 export type ReservationStatus = 'Confirmé' | 'En attente' | 'Annulé';
+export type StayType = 'nuitée' | 'journée';
 
 export interface Reservation {
   id: string;
@@ -9,6 +10,7 @@ export interface Reservation {
   phone: string;
   email?: string;
   roomId: string;
+  stayType: StayType;
   checkIn: string;
   checkOut: string;
   remarks?: string;

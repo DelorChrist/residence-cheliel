@@ -42,7 +42,7 @@ export const ChambreDetail = () => {
               />
               {/* Prix badge */}
               <div className="absolute top-5 left-5 bg-white/95 backdrop-blur-md px-4 py-2 rounded-full font-bold text-primary-900 shadow-lg">
-                {room.price.toLocaleString()} FCFA <span className="font-normal text-sm text-gray-500">/ 24h</span>
+                {room.priceNight.toLocaleString()} FCFA <span className="font-normal text-sm text-gray-500">/ nuitée</span>
               </div>
               {/* Disponibilité */}
               <div className="absolute top-5 right-5 bg-primary-600 text-white px-3 py-1.5 rounded-full text-xs font-medium shadow-lg">
@@ -104,7 +104,7 @@ export const ChambreDetail = () => {
             {/* Prix + CTA */}
             <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
               <div className="flex items-end gap-2 mb-1">
-                <span className="text-4xl font-heading font-bold text-primary-600">{room.price.toLocaleString()}</span>
+                <span className="text-4xl font-heading font-bold text-primary-600">{room.priceNight.toLocaleString()}</span>
                 <span className="text-gray-500 mb-1">FCFA / 24h</span>
               </div>
               <p className="text-gray-400 text-sm mb-5">{room.count} appartements de ce type disponibles</p>

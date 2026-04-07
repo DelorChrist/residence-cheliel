@@ -58,7 +58,7 @@ export const ChambresPage = () => {
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                   <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-md px-4 py-2 rounded-full font-bold text-primary-900 shadow-md text-sm">
-                    {room.price.toLocaleString()} FCFA <span className="font-normal text-gray-500">/ 24h</span>
+                    {room.priceNight.toLocaleString()} FCFA <span className="font-normal text-gray-500">/ nuitée</span>
                   </div>
                   <div className="absolute top-4 right-4 bg-primary-600 text-white px-3 py-1.5 rounded-full text-xs font-medium shadow-md">
                     {room.count} disponibles

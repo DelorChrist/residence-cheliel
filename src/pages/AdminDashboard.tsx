@@ -61,7 +61,8 @@ export const AdminDashboard = () => {
     .reduce((acc, r) => {
       const room = rooms.find(rm => rm.id === r.roomId);
       const nights = getNights(r.checkIn, r.checkOut);
-      return acc + (room ? room.price * nights : 0);
+      const price = room ? (r.stayType === 'journée' ? room.priceDay : room.priceNight) : 0;
+      return acc + price * nights;
     }, 0);
 
   const occupancyRate = totalReservations === 0
@@ -213,7 +214,7 @@ export const AdminDashboard = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-gray-900">{room?.name || 'Inconnue'}</div>
-                        <div className="text-sm text-gray-500">{room?.price.toLocaleString()} F/n · {nights} nuit{nights > 1 ? 's' : ''}</div>
+                        <div className="text-sm text-gray-500">{room?.priceNight.toLocaleString()} F/n · {nights} nuit{nights > 1 ? 's' : ''}</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-gray-900">{new Date(res.checkIn).toLocaleDateString('fr-FR')}</div>
