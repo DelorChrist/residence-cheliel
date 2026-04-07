@@ -59,6 +59,7 @@ const toDB = (r: Omit<Reservation, 'createdAt'>) => ({
 export const useReservations = () => {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [storageError, setStorageError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchReservations();
@@ -81,8 +82,11 @@ export const useReservations = () => {
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (!error && data) {
+    if (error) {
+      setStorageError(error.message);
+    } else if (data) {
       setReservations(data.map(fromDB));
+      setStorageError(null);
     }
     setLoading(false);
   };
@@ -124,6 +128,7 @@ export const useReservations = () => {
   return {
     reservations,
     loading,
+    storageError,
     addReservation,
     updateStatus,
     deleteReservation,
