@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { useReservations, Reservation, getNights, ReservationStatus } from '../hooks/useReservations';
-import { rooms as staticRooms } from '../data/rooms';
+import { useReservations, Reservation, getNights, getReservationPricing, ReservationStatus } from '../hooks/useReservations';
+import { useRooms } from '../hooks/useRooms';
 import {
   Lock, LayoutDashboard, CalendarDays, DollarSign, Users, Clock,
   LogOut, CheckCircle2, XCircle, Download, LucideIcon, Trash2, Mail,
@@ -15,6 +15,13 @@ type AdminTab = 'dashboard' | 'reservations' | 'clients' | 'planning' | 'chambre
 
 const BUCKET = 'room-images';
 
+type DashboardRoom = {
+  id: string;
+  name: string;
+  price_night: number;
+  price_day: number;
+};
+
 // ─── Utilitaires ───────────────────────────────────────────────────────────
 
 const sanitizeCSVField = (value: string | number): string => {
@@ -22,11 +29,11 @@ const sanitizeCSVField = (value: string | number): string => {
   return /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
 };
 
-const exportCSV = (reservations: Reservation[]) => {
+const exportCSV = (reservations: Reservation[], rooms: DashboardRoom[]) => {
   if (reservations.length === 0) { alert('Aucune réservation à exporter.'); return; }
   const headers = ['ID', 'Client', 'Téléphone', 'Email', 'Chambre', 'Type', 'Arrivée', 'Départ', 'Durée', 'Paiement', 'Statut', 'Créé le'];
   const rows = reservations.map(r => {
-    const room = staticRooms.find(rm => rm.id === r.roomId);
+    const room = rooms.find(rm => rm.id === r.roomId);
     const nights = getNights(r.checkIn, r.checkOut);
     return [
       r.id, r.clientName, r.phone, r.email ?? '',
@@ -67,9 +74,10 @@ const getConflictIds = (reservations: Reservation[]): Set<string> => {
 };
 
 // ─── 1. Vue Tableau de Bord ────────────────────────────────────────────────
-const OverviewTab = ({ reservations, conflictIds, onTabChange }: {
+const OverviewTab = ({ reservations, conflictIds, rooms, onTabChange }: {
   reservations: Reservation[];
   conflictIds: Set<string>;
+  rooms: DashboardRoom[];
   onTabChange: (tab: AdminTab) => void;
 }) => {
   const totalReservations = reservations.length;
@@ -78,18 +86,18 @@ const OverviewTab = ({ reservations, conflictIds, onTabChange }: {
   const revenue = reservations
     .filter(r => r.status === 'Confirmé')
     .reduce((acc, r) => {
-      const room = staticRooms.find(rm => rm.id === r.roomId);
+      const room = rooms.find(rm => rm.id === r.roomId);
       const nights = getNights(r.checkIn, r.checkOut);
-      const price = room ? (r.stayType === 'journée' ? room.priceDay : room.priceNight) : 0;
-      return acc + price * nights;
+      const price = room ? (r.stayType === 'journée' ? room.price_day : room.price_night) : 0;
+      return acc + getReservationPricing(price, nights).total;
     }, 0);
   const pendingRevenue = reservations
     .filter(r => r.status === 'En attente')
     .reduce((acc, r) => {
-      const room = staticRooms.find(rm => rm.id === r.roomId);
+      const room = rooms.find(rm => rm.id === r.roomId);
       const nights = getNights(r.checkIn, r.checkOut);
-      const price = room ? (r.stayType === 'journée' ? room.priceDay : room.priceNight) : 0;
-      return acc + price * nights;
+      const price = room ? (r.stayType === 'journée' ? room.price_day : room.price_night) : 0;
+      return acc + getReservationPricing(price, nights).total;
     }, 0);
   const occupancyRate = totalReservations === 0
     ? 0
@@ -146,7 +154,7 @@ const OverviewTab = ({ reservations, conflictIds, onTabChange }: {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {recent.map(res => {
-                const room = staticRooms.find(r => r.id === res.roomId);
+                const room = rooms.find(r => r.id === res.roomId);
                 const isConflict = conflictIds.has(res.id);
                 return (
                   <tr key={res.id} className={`hover:bg-gray-50/50 ${isConflict ? 'bg-red-50/40' : ''}`}>
@@ -179,9 +187,10 @@ const OverviewTab = ({ reservations, conflictIds, onTabChange }: {
 };
 
 // ─── Vue Réservations (avec conflits) ─────────────────────────────────────
-const ReservationsTab = ({ reservations, conflictIds, updateStatus, deleteReservation }: {
+const ReservationsTab = ({ reservations, conflictIds, rooms, updateStatus, deleteReservation }: {
   reservations: Reservation[];
   conflictIds: Set<string>;
+  rooms: DashboardRoom[];
   updateStatus: (id: string, status: ReservationStatus) => void;
   deleteReservation: (id: string) => void;
 }) => {
@@ -198,7 +207,7 @@ const ReservationsTab = ({ reservations, conflictIds, updateStatus, deleteReserv
     .filter(r => {
       if (!search.trim()) return true;
       const q = search.toLowerCase();
-      const room = staticRooms.find(rm => rm.id === r.roomId);
+      const room = rooms.find(rm => rm.id === r.roomId);
       return r.clientName.toLowerCase().includes(q) || r.phone.includes(q) || (room?.name.toLowerCase().includes(q) ?? false);
     });
 
@@ -225,7 +234,7 @@ const ReservationsTab = ({ reservations, conflictIds, updateStatus, deleteReserv
             {conflictIds.size > 0 && <span className="ml-2 text-red-600 font-medium">· {conflictIds.size} conflit{conflictIds.size > 1 ? 's' : ''}</span>}
           </p>
         </div>
-        <button type="button" onClick={() => exportCSV(reservations)} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 transition-colors text-sm">
+        <button type="button" onClick={() => exportCSV(reservations, rooms)} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 transition-colors text-sm">
           <Download size={16} /> Exporter CSV
         </button>
       </div>
@@ -266,9 +275,10 @@ const ReservationsTab = ({ reservations, conflictIds, updateStatus, deleteReserv
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((res: Reservation) => {
-                const room = staticRooms.find(r => r.id === res.roomId);
+                const room = rooms.find(r => r.id === res.roomId);
                 const nights = getNights(res.checkIn, res.checkOut);
-                const price = room ? (res.stayType === 'journée' ? room.priceDay : room.priceNight) : 0;
+                const price = room ? (res.stayType === 'journée' ? room.price_day : room.price_night) : 0;
+                const total = getReservationPricing(price, nights).total;
                 const unit = res.stayType === 'journée' ? 'j' : 'n';
                 const isConflict = conflictIds.has(res.id);
                 return (
@@ -286,7 +296,7 @@ const ReservationsTab = ({ reservations, conflictIds, updateStatus, deleteReserv
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-gray-900">{room?.name || 'Inconnue'}</div>
-                      <div className="text-sm text-gray-500">{price.toLocaleString()} F/{unit} · {nights} {res.stayType === 'journée' ? 'jour' : 'nuit'}{nights > 1 ? 's' : ''}</div>
+                      <div className="text-sm text-gray-500">{price.toLocaleString()} F/{unit} · {nights} {res.stayType === 'journée' ? 'jour' : 'nuit'}{nights > 1 ? 's' : ''} · Total {total.toLocaleString()} F</div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-gray-900">{new Date(res.checkIn).toLocaleDateString('fr-FR')}</div>
@@ -334,7 +344,7 @@ const ReservationsTab = ({ reservations, conflictIds, updateStatus, deleteReserv
 };
 
 // ─── 2. Vue Planning / Calendrier ─────────────────────────────────────────
-const PlanningTab = ({ reservations, conflictIds }: { reservations: Reservation[]; conflictIds: Set<string> }) => {
+const PlanningTab = ({ reservations, conflictIds, rooms }: { reservations: Reservation[]; conflictIds: Set<string>; rooms: DashboardRoom[] }) => {
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
 
@@ -418,7 +428,7 @@ const PlanningTab = ({ reservations, conflictIds }: { reservations: Reservation[
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {staticRooms.map(room => (
+              {rooms.map(room => (
                 <tr key={room.id} className="hover:bg-gray-50/30">
                   <td className="px-4 py-2 font-medium text-gray-800 sticky left-0 bg-white z-10 border-r border-gray-100 text-xs">{room.name}</td>
                   {/* Desktop */}
@@ -464,15 +474,15 @@ const PlanningTab = ({ reservations, conflictIds }: { reservations: Reservation[
 };
 
 // ─── Vue Clients ───────────────────────────────────────────────────────────
-const ClientsTab = ({ reservations }: { reservations: Reservation[] }) => {
+const ClientsTab = ({ reservations, rooms }: { reservations: Reservation[]; rooms: DashboardRoom[] }) => {
   const [search, setSearch] = useState('');
 
   const clientsMap = new Map<string, { name: string; phone: string; email?: string; count: number; lastVisit: string; totalSpent: number }>();
   reservations.forEach(r => {
-    const room = staticRooms.find(rm => rm.id === r.roomId);
+    const room = rooms.find(rm => rm.id === r.roomId);
     const nights = getNights(r.checkIn, r.checkOut);
-    const price = room ? (r.stayType === 'journée' ? room.priceDay : room.priceNight) : 0;
-    const spent = r.status === 'Confirmé' ? price * nights : 0;
+    const price = room ? (r.stayType === 'journée' ? room.price_day : room.price_night) : 0;
+    const spent = r.status === 'Confirmé' ? getReservationPricing(price, nights).total : 0;
     const existing = clientsMap.get(r.phone);
     if (existing) {
       existing.count += 1;
@@ -574,12 +584,19 @@ const ImagePicker = ({ selected, onChange }: { selected: string[]; onChange: (im
   const [gallery, setGallery] = useState<{ id: string; url: string; name: string }[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loadingGallery, setLoadingGallery] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const fetchGallery = useCallback(async () => {
     setLoadingGallery(true);
-    const { data } = await supabase.from('gallery').select('*').order('created_at', { ascending: false });
-    if (data) setGallery(data);
+    const { data, error } = await supabase.from('gallery').select('*').order('created_at', { ascending: false });
+    if (error) {
+      setError("Impossible de charger la galerie d'images.");
+      setGallery([]);
+    } else if (data) {
+      setGallery(data);
+      setError(null);
+    }
     setLoadingGallery(false);
   }, []);
 
@@ -589,17 +606,36 @@ const ImagePicker = ({ selected, onChange }: { selected: string[]; onChange: (im
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
     setUploading(true);
+    setError(null);
+    const uploadErrors: string[] = [];
+    const uploadedUrls: string[] = [];
     for (const file of files) {
       const ext = file.name.split('.').pop();
       const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
+      const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+        upsert: false,
+        cacheControl: '3600',
+        contentType: file.type,
+      });
       if (!error) {
         const { data: { publicUrl } } = supabase.storage.from(BUCKET).getPublicUrl(path);
-        await supabase.from('gallery').insert({ url: publicUrl, name: file.name });
+        const { error: galleryError } = await supabase.from('gallery').insert({ url: publicUrl, name: file.name });
+        if (galleryError) {
+          uploadErrors.push(`${file.name}: impossible d'enregistrer l'image dans la galerie.`);
+        } else {
+          uploadedUrls.push(publicUrl);
+        }
+      } else {
+        uploadErrors.push(`${file.name}: ${error.message}`);
       }
+    }
+    if (uploadedUrls.length > 0) {
+      const uniqueUrls = uploadedUrls.filter(url => !selected.includes(url));
+      onChange([...uniqueUrls, ...selected.filter(url => !uniqueUrls.includes(url))]);
     }
     await fetchGallery();
     setUploading(false);
+    if (uploadErrors.length > 0) setError(uploadErrors.join(' '));
     if (inputRef.current) inputRef.current.value = '';
   };
 
@@ -674,6 +710,12 @@ const ImagePicker = ({ selected, onChange }: { selected: string[]; onChange: (im
             );
           })}
         </div>
+      )}
+
+      {error && (
+        <p className="mt-3 text-sm text-red-600 leading-relaxed">
+          {error}
+        </p>
       )}
 
       {/* Images sélectionnées (ordre) */}
@@ -898,6 +940,13 @@ const ChambresTab = () => {
 // ─── 3. Dashboard principal avec notifications temps réel ─────────────────
 const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: () => void }) => {
   const { reservations, storageError, updateStatus, deleteReservation } = useReservations();
+  const { rooms: dbRooms } = useRooms();
+  const rooms: DashboardRoom[] = dbRooms.map(r => ({
+    id: r.id,
+    name: r.name,
+    price_night: r.priceNight,
+    price_day: r.priceDay,
+  }));
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [notifications, setNotifications] = useState<{ id: string; message: string }[]>([]);
   const prevCountRef = useRef<number | null>(null);
@@ -910,13 +959,13 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
     if (prevCountRef.current === null) { prevCountRef.current = reservations.length; return; }
     if (reservations.length > prevCountRef.current) {
       const newest = reservations[0];
-      const room = staticRooms.find(r => r.id === newest?.roomId);
+      const room = rooms.find(r => r.id === newest?.roomId);
       const notif = { id: Date.now().toString(), message: `Nouvelle réservation de ${newest?.clientName} — ${room?.name ?? newest?.roomId}` };
       setNotifications(n => [notif, ...n].slice(0, 5));
       setTimeout(() => setNotifications(n => n.filter(x => x.id !== notif.id)), 6000);
     }
     prevCountRef.current = reservations.length;
-  }, [reservations.length]);
+  }, [reservations, rooms]);
 
   const navItems: { id: AdminTab; label: string; icon: LucideIcon }[] = [
     { id: 'dashboard', label: 'Tableau de Bord', icon: LayoutDashboard },
@@ -990,10 +1039,10 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
           </div>
         )}
 
-        {activeTab === 'dashboard' && <OverviewTab reservations={reservations} conflictIds={conflictIds} onTabChange={setActiveTab} />}
-        {activeTab === 'reservations' && <ReservationsTab reservations={reservations} conflictIds={conflictIds} updateStatus={updateStatus} deleteReservation={deleteReservation} />}
-        {activeTab === 'planning' && <PlanningTab reservations={reservations} conflictIds={conflictIds} />}
-        {activeTab === 'clients' && <ClientsTab reservations={reservations} />}
+        {activeTab === 'dashboard' && <OverviewTab reservations={reservations} conflictIds={conflictIds} rooms={rooms} onTabChange={setActiveTab} />}
+        {activeTab === 'reservations' && <ReservationsTab reservations={reservations} conflictIds={conflictIds} rooms={rooms} updateStatus={updateStatus} deleteReservation={deleteReservation} />}
+        {activeTab === 'planning' && <PlanningTab reservations={reservations} conflictIds={conflictIds} rooms={rooms} />}
+        {activeTab === 'clients' && <ClientsTab reservations={reservations} rooms={rooms} />}
         {activeTab === 'chambres' && <ChambresTab />}
       </main>
     </div>

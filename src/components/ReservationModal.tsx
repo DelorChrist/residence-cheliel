@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, CheckCircle2, ChevronRight, ChevronLeft, User, CalendarDays, CreditCard, Sun, Moon } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 import { useRooms } from '../hooks/useRooms';
 import { useReservations, PaymentMethod, StayType } from '../hooks/useReservations';
-import { getNights } from '../hooks/useReservations';
+import { getNights, getReservationPricing, LONG_STAY_DISCOUNT_THRESHOLD } from '../hooks/useReservations';
 
 const today = new Date().toISOString().split('T')[0];
 
@@ -21,11 +22,14 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
   const { addReservation } = useReservations();
   const { rooms } = useRooms();
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
+  const [alternativeRoomIds, setAlternativeRoomIds] = useState<string[]>([]);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     clientName: '',
     phone: '',
     email: '',
-    roomId: initialRoomId || rooms[0].id,
+    roomId: initialRoomId || '',
     stayType: 'nuitée' as StayType,
     checkIn: '',
     checkOut: '',
@@ -33,16 +37,90 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
     paymentMethod: 'Orange Money' as PaymentMethod
   });
 
+  useEffect(() => {
+    if (formData.roomId) return;
+    if (rooms.length === 0) return;
+    setFormData(prev => ({
+      ...prev,
+      roomId: initialRoomId && rooms.some(r => r.id === initialRoomId) ? initialRoomId : rooms[0].id,
+    }));
+  }, [formData.roomId, initialRoomId, rooms]);
+
   const selectedRoom = rooms.find(r => r.id === formData.roomId);
   const price = selectedRoom ? (formData.stayType === 'nuitée' ? selectedRoom.priceNight : selectedRoom.priceDay) : 0;
   const nights = formData.checkIn && formData.checkOut ? getNights(formData.checkIn, formData.checkOut) : 0;
-  const total = price * (nights || 1);
+  const pricing = getReservationPricing(price, nights || 1);
+  const total = pricing.total;
 
-  const canNext1 = formData.roomId && formData.checkIn && formData.checkOut;
+  useEffect(() => {
+    const checkAvailability = async () => {
+      if (!formData.roomId || !formData.checkIn) {
+        setAvailabilityMessage(null);
+        setAlternativeRoomIds([]);
+        return;
+      }
+
+      const { data: isAvailable, error } = await supabase.rpc('is_room_available_for_checkin', {
+        p_room_id: formData.roomId,
+        p_check_in: formData.checkIn,
+      });
+
+      if (error) {
+        setAvailabilityMessage(null);
+        setAlternativeRoomIds([]);
+        return;
+      }
+
+      if (isAvailable) {
+        setAvailabilityMessage(null);
+        setAlternativeRoomIds([]);
+        return;
+      }
+
+      const { data: availableRooms } = await supabase.rpc('list_available_rooms_for_checkin', {
+        p_check_in: formData.checkIn,
+      });
+
+      const alternatives = ((availableRooms ?? []) as Array<{ room_id: string }>)
+        .map(r => r.room_id)
+        .filter(id => id !== formData.roomId);
+
+      if (alternatives.length > 0) {
+        setAvailabilityMessage(`Cette chambre est déjà réservée le ${new Date(formData.checkIn).toLocaleDateString('fr-FR')}. Voici les autres chambres disponibles:`);
+        setAlternativeRoomIds(alternatives);
+      } else {
+        setAvailabilityMessage(`Aucune chambre n'est disponible le ${new Date(formData.checkIn).toLocaleDateString('fr-FR')}. Veuillez choisir une autre date.`);
+        setAlternativeRoomIds([]);
+      }
+    };
+
+    checkAvailability();
+  }, [formData.checkIn, formData.roomId, rooms]);
+
+  const canNext1 = Boolean(selectedRoom && formData.checkIn && formData.checkOut && !availabilityMessage);
   const canNext2 = formData.clientName && formData.phone;
 
-  const handleSubmit = () => {
-    addReservation({
+  const handleSubmit = async () => {
+    setSubmitError(null);
+    const { data: isAvailable } = await supabase.rpc('is_room_available_for_checkin', {
+      p_room_id: formData.roomId,
+      p_check_in: formData.checkIn,
+    });
+
+    if (isAvailable === false) {
+      setStep(1);
+      setAvailabilityMessage('La chambre sélectionnée vient d\'être réservée pour cette date. Choisissez une autre chambre.');
+      const { data: availableRooms } = await supabase.rpc('list_available_rooms_for_checkin', {
+        p_check_in: formData.checkIn,
+      });
+      const alternatives = ((availableRooms ?? []) as Array<{ room_id: string }>)
+        .map(r => r.room_id)
+        .filter(id => id !== formData.roomId);
+      setAlternativeRoomIds(alternatives);
+      return;
+    }
+
+    const result = await addReservation({
       clientName: formData.clientName,
       phone: formData.phone,
       email: formData.email,
@@ -53,6 +131,13 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
       remarks: formData.remarks,
       paymentMethod: formData.paymentMethod
     });
+
+    if (!result.ok) {
+      setStep(1);
+      setSubmitError(result.error || 'Impossible d’enregistrer la réservation.');
+      return;
+    }
+
     setStep(4);
   };
 
@@ -149,10 +234,51 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                       <input id="checkOut" type="date" min={formData.checkIn || today} className={inputClass} value={formData.checkOut} onChange={e => setFormData({...formData, checkOut: e.target.value})} />
                     </div>
                   </div>
+                  {availabilityMessage && (
+                    <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 space-y-3">
+                      <p>{availabilityMessage}</p>
+                      {alternativeRoomIds.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {alternativeRoomIds.map((roomId) => {
+                            const altRoom = rooms.find(r => r.id === roomId);
+                            if (!altRoom) return null;
+                            return (
+                              <button
+                                key={roomId}
+                                type="button"
+                                onClick={() => setFormData({ ...formData, roomId })}
+                                className="rounded-xl bg-primary-600 px-4 py-2 text-white font-medium hover:bg-primary-700 transition-colors text-left"
+                              >
+                                <span className="block">{altRoom.name}</span>
+                                <span className="block text-xs text-primary-100">{altRoom.capacity}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {submitError && (
+                    <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                      {submitError}
+                    </div>
+                  )}
                   {nights > 0 && (
-                    <div className="bg-primary-50 rounded-2xl p-4 flex items-center justify-between">
-                      <span className="text-gray-600 text-sm">{nights} {formData.stayType === 'nuitée' ? 'nuit' : 'jour'}{nights > 1 ? 's' : ''} · {selectedRoom?.name}</span>
-                      <span className="font-bold text-primary-700">{total.toLocaleString()} FCFA</span>
+                    <div className="bg-primary-50 rounded-2xl p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600 text-sm">{nights} {formData.stayType === 'nuitée' ? 'nuit' : 'jour'}{nights > 1 ? 's' : ''} · {selectedRoom?.name}</span>
+                        <span className="font-medium text-gray-700">{pricing.subtotal.toLocaleString()} FCFA</span>
+                      </div>
+                      {pricing.discount > 0 && (
+                        <div className="flex items-center justify-between text-green-700 text-sm">
+                          <span>Réduction long séjour (20% dès {LONG_STAY_DISCOUNT_THRESHOLD} jours)</span>
+                          <span>-{pricing.discount.toLocaleString()} FCFA</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between border-t border-primary-100 pt-2">
+                        <span className="font-semibold text-gray-800">Total</span>
+                        <span className="font-bold text-primary-700">{total.toLocaleString()} FCFA</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -163,7 +289,7 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                 <div className="space-y-5">
                   <div>
                     <label className="text-sm font-semibold text-gray-700 mb-2 block">Nom Complet *</label>
-                    <input type="text" className={inputClass} value={formData.clientName} onChange={e => setFormData({...formData, clientName: e.target.value})} placeholder="Jean Dupont" />
+                    <input type="text" className={inputClass} value={formData.clientName} onChange={e => setFormData({...formData, clientName: e.target.value})} placeholder="Junior Kuimessan" />
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 mb-2 block">Téléphone *</label>
@@ -217,6 +343,11 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                     <div className="flex justify-between text-sm text-gray-600">
                       <span>Durée</span><span className="font-medium text-gray-800">{nights} {formData.stayType === 'nuitée' ? 'nuit' : 'jour'}{nights > 1 ? 's' : ''}</span>
                     </div>
+                    {pricing.discount > 0 && (
+                      <div className="flex justify-between text-sm text-green-700">
+                        <span>Réduction long séjour</span><span className="font-medium">-{pricing.discount.toLocaleString()} FCFA</span>
+                      </div>
+                    )}
                     <div className="border-t border-gray-200 pt-3 flex justify-between font-bold text-gray-900">
                       <span>Total estimé</span><span className="text-primary-600">{total.toLocaleString()} FCFA</span>
                     </div>

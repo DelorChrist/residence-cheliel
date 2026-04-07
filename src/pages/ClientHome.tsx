@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Star, Wifi, Wind, MapPin, ArrowUp, ArrowRight } from 'lucide-react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Room } from '../data/rooms';
 import { useRooms } from '../hooks/useRooms';
 import { Header } from '../components/Header';
@@ -17,6 +17,7 @@ export const ClientHome = () => {
   const { rooms, totalApartments } = useRooms();
 
   const location = useLocation();
+  const navigate = useNavigate();
 
   const handleScroll = useCallback(() => {
     setShowScrollTop(window.scrollY > 400);
@@ -47,7 +48,7 @@ export const ClientHome = () => {
       {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
 
       <div className="min-h-screen font-sans bg-[#faf9f8] text-[#333]">
-        <Header onReserve={() => openReservationModal()} />
+        <Header onReserve={() => navigate('/chambres')} />
 
         {/* Hero Section */}
         <section id="accueil" className="relative h-screen flex items-center justify-center overflow-hidden">
@@ -59,18 +60,18 @@ export const ClientHome = () => {
           <div className="container relative z-10 mx-auto px-6 text-center mt-20">
             <p className="text-primary-300 font-medium tracking-[0.25em] uppercase text-xs md:text-sm mb-4">L'art de vivre à Yamoussoukro</p>
             <h1 className="text-4xl sm:text-5xl md:text-7xl font-heading font-bold text-white mb-6 leading-tight drop-shadow-lg">
-              Votre havre de paix <br /> au cœur de Yakro
+              Votre havre de paix <br /> au cœur de Yamoussoukro  
             </h1>
             <p className="text-base md:text-xl text-white/90 mb-10 max-w-2xl mx-auto font-light leading-relaxed">
-              Venez vivre l'élégance des résidences Cheliel à Yamoussoukro, Morofé à 100m du foyer des jeunes.
+              Venez vivre un sejour inoubliable aux résidences Cheliel à Yamoussoukro, Morofé à 100m du foyer des jeunes.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <button
-                onClick={() => openReservationModal()}
+              <Link
+                to="/chambres"
                 className="animate-pulse bg-primary-600 hover:bg-primary-500 hover:animate-none text-white px-8 py-4 rounded-full font-medium text-lg transition-all transform hover:scale-105 shadow-xl shadow-primary-900/30"
               >
                 Réservez votre séjour
-              </button>
+              </Link>
               <a href="#chambres" className="bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/30 text-white px-8 py-4 rounded-full font-medium text-lg transition-all">
                 Découvrez nos suites
               </a>

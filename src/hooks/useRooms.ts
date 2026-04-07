@@ -30,19 +30,37 @@ const fromDB = (r: RoomRow): Room => ({
 export const useRooms = () => {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase
-      .from('rooms')
-      .select('*')
-      .order('name')
-      .then(({ data }) => {
-        if (data) setRooms((data as RoomRow[]).map(fromDB));
-        setLoading(false);
-      });
+    let isMounted = true;
+
+    const fetchRooms = async () => {
+      const { data, error } = await supabase
+        .from('rooms')
+        .select('*')
+        .order('name');
+
+      if (!isMounted) return;
+
+      if (error) {
+        setError('Impossible de charger les appartements.');
+        setRooms([]);
+      } else if (data) {
+        setRooms((data as RoomRow[]).map(fromDB));
+        setError(null);
+      }
+      setLoading(false);
+    };
+
+    fetchRooms();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const totalApartments = rooms.length;
 
-  return { rooms, loading, totalApartments };
+  return { rooms, loading, error, totalApartments };
 };

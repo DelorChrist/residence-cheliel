@@ -24,6 +24,9 @@ create table if not exists reservations (
 create index if not exists idx_reservations_phone      on reservations (phone);
 create index if not exists idx_reservations_status     on reservations (status);
 create index if not exists idx_reservations_created_at on reservations (created_at desc);
+create unique index if not exists idx_reservations_room_checkin_active
+  on reservations (room_id, check_in)
+  where status <> 'Annulé';
 
 -- RLS
 alter table reservations enable row level security;
@@ -35,11 +38,97 @@ drop policy if exists "Mise à jour publique"  on reservations;
 drop policy if exists "Suppression publique"  on reservations;
 drop policy if exists "Mise à jour admin"     on reservations;
 drop policy if exists "Suppression admin"     on reservations;
+drop policy if exists "Lecture admin"         on reservations;
 
-create policy "Lecture publique"   on reservations for select using (true);
+create policy "Lecture admin"      on reservations for select using (auth.role() = 'authenticated');
 create policy "Insertion publique" on reservations for insert with check (true);
 create policy "Mise à jour admin"  on reservations for update using (auth.role() = 'authenticated');
 create policy "Suppression admin"  on reservations for delete using (auth.role() = 'authenticated');
+
+-- Vérification disponibilité chambre (publique via RPC)
+create or replace function public.is_room_available_for_checkin(p_room_id text, p_check_in date)
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select not exists (
+    select 1
+    from reservations r
+    where r.room_id = p_room_id
+      and r.check_in = p_check_in
+      and r.status <> 'Annulé'
+  );
+$$;
+
+grant execute on function public.is_room_available_for_checkin(text, date) to anon, authenticated;
+
+-- Liste des chambres disponibles pour une date d'entrée donnée
+create or replace function public.list_available_rooms_for_checkin(p_check_in date)
+returns table (room_id text)
+language sql
+security definer
+set search_path = public
+as $$
+  select rm.id as room_id
+  from rooms rm
+  where not exists (
+    select 1
+    from reservations r
+    where r.room_id = rm.id
+      and r.check_in = p_check_in
+      and r.status <> 'Annulé'
+  )
+  order by rm.name;
+$$;
+
+grant execute on function public.list_available_rooms_for_checkin(date) to anon, authenticated;
+
+-- Recherche publique limitée: permet aux clients de retrouver uniquement
+-- leurs réservations en filtrant par numéro de téléphone.
+create or replace function public.search_reservations_by_phone(p_phone text)
+returns table (
+  id text,
+  client_name text,
+  phone text,
+  email text,
+  room_id text,
+  stay_type text,
+  check_in date,
+  check_out date,
+  remarks text,
+  payment_method text,
+  status text,
+  created_at timestamptz
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    r.id,
+    r.client_name,
+    r.phone,
+    r.email,
+    r.room_id,
+    r.stay_type,
+    r.check_in,
+    r.check_out,
+    r.remarks,
+    r.payment_method,
+    r.status,
+    r.created_at
+  from reservations r
+  where regexp_replace(r.phone, '\\s+', '', 'g') = regexp_replace(coalesce(p_phone, ''), '\\s+', '', 'g')
+  order by r.created_at desc;
+$$;
+
+grant execute on function public.search_reservations_by_phone(text) to anon, authenticated;
+
+-- ============================================================
+-- RESET TEST DATA (à exécuter une seule fois pour repartir à zéro)
+-- ============================================================
+truncate table reservations;
 
 -- ============================================================
 -- TABLE: rooms
@@ -104,6 +193,31 @@ create policy "Delete admin gallery"     on gallery for delete using (auth.role(
 
 -- ============================================================
 -- STORAGE BUCKET: room-images
--- (à créer manuellement dans Supabase Dashboard > Storage
---  ou via l'API, public bucket)
+-- (créé ici pour garantir que l'upload fonctionne en prod)
 -- ============================================================
+insert into storage.buckets (id, name, public)
+values ('room-images', 'room-images', true)
+on conflict (id) do update
+set name = excluded.name,
+    public = excluded.public;
+
+drop policy if exists "Lecture publique room-images" on storage.objects;
+drop policy if exists "Insertion admin room-images" on storage.objects;
+drop policy if exists "Mise à jour admin room-images" on storage.objects;
+drop policy if exists "Suppression admin room-images" on storage.objects;
+
+create policy "Lecture publique room-images"
+on storage.objects for select
+using (bucket_id = 'room-images');
+
+create policy "Insertion admin room-images"
+on storage.objects for insert
+with check (bucket_id = 'room-images' and auth.role() = 'authenticated');
+
+create policy "Mise à jour admin room-images"
+on storage.objects for update
+using (bucket_id = 'room-images' and auth.role() = 'authenticated');
+
+create policy "Suppression admin room-images"
+on storage.objects for delete
+using (bucket_id = 'room-images' and auth.role() = 'authenticated');

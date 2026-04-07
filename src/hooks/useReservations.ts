@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase';
 export type PaymentMethod = 'Orange Money' | 'Wave';
 export type ReservationStatus = 'Confirmé' | 'En attente' | 'Annulé';
 export type StayType = 'nuitée' | 'journée';
+export const LONG_STAY_DISCOUNT_THRESHOLD = 3;
+export const LONG_STAY_DISCOUNT_RATE = 0.2;
 
 export interface Reservation {
   id: string;
@@ -23,6 +25,19 @@ export interface Reservation {
 export const getNights = (checkIn: string, checkOut: string): number => {
   const diff = new Date(checkOut).getTime() - new Date(checkIn).getTime();
   return Math.max(1, Math.round(diff / (1000 * 60 * 60 * 24)));
+};
+
+export const getReservationPricing = (unitPrice: number, nights: number) => {
+  const safeNights = Math.max(1, nights);
+  const subtotal = unitPrice * safeNights;
+  const discount = safeNights >= LONG_STAY_DISCOUNT_THRESHOLD
+    ? Math.round(subtotal * LONG_STAY_DISCOUNT_RATE)
+    : 0;
+  return {
+    subtotal,
+    discount,
+    total: subtotal - discount,
+  };
 };
 
 // Convertir snake_case Supabase → camelCase
@@ -61,18 +76,37 @@ export const useReservations = () => {
   const [loading, setLoading] = useState(true);
   const [storageError, setStorageError] = useState<string | null>(null);
 
+  const isAuthenticated = async () => {
+    const { data } = await supabase.auth.getSession();
+    return Boolean(data.session);
+  };
+
   useEffect(() => {
-    fetchReservations();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
 
-    // Écoute en temps réel
-    const channel = supabase
-      .channel('reservations')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
-        fetchReservations();
-      })
-      .subscribe();
+    const init = async () => {
+      const canReadReservations = await isAuthenticated();
+      if (!canReadReservations) {
+        setLoading(false);
+        return;
+      }
 
-    return () => { supabase.removeChannel(channel); };
+      await fetchReservations();
+
+      // Écoute en temps réel
+      channel = supabase
+        .channel('reservations')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
+          fetchReservations();
+        })
+        .subscribe();
+    };
+
+    init();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchReservations = async () => {
@@ -99,10 +133,14 @@ export const useReservations = () => {
     };
 
     const { error } = await supabase.from('reservations').insert(toDB(newReservation));
-    if (error) console.error('Erreur ajout réservation:', error);
-    else await fetchReservations();
+    if (error) {
+      console.error('Erreur ajout réservation:', error);
+      return { ok: false as const, error: error.message };
+    }
 
-    return newReservation;
+    if (await isAuthenticated()) await fetchReservations();
+
+    return { ok: true as const, reservation: newReservation };
   };
 
   const updateStatus = async (id: string, status: ReservationStatus) => {

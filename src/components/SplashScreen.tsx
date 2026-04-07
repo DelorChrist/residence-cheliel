@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 export const SplashScreen = ({ onDone }: { onDone: () => void }) => {
   const [fadeOut, setFadeOut] = useState(false);
+  const dotClass = 'w-2 h-2 rounded-full bg-primary-400 animate-bounce';
 
   useEffect(() => {
     const timer = setTimeout(() => setFadeOut(true), 1800);
@@ -24,9 +25,9 @@ export const SplashScreen = ({ onDone }: { onDone: () => void }) => {
         </div>
       </div>
       <div className="absolute bottom-12 flex gap-2">
-        <span className="w-2 h-2 rounded-full bg-primary-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-        <span className="w-2 h-2 rounded-full bg-primary-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-        <span className="w-2 h-2 rounded-full bg-primary-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+        <span className={`${dotClass} [animation-delay:0ms]`} />
+        <span className={`${dotClass} [animation-delay:150ms]`} />
+        <span className={`${dotClass} [animation-delay:300ms]`} />
       </div>
     </div>
   );

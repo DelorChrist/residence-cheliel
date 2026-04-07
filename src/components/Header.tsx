@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Menu, X } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
@@ -10,6 +10,14 @@ const OPAQUE_ROUTES = ['/chambres/'];
 
 const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
 
+const getNavFromPathname = (pathname: string) => {
+  if (pathname === '/a-propos') return 'a-propos';
+  if (pathname === '/chambres') return 'chambres';
+  if (pathname === '/mes-reservations') return 'mes-reservations';
+  if (pathname.startsWith('/chambres/')) return 'chambres';
+  return 'accueil';
+};
+
 export const Header = ({ onReserve }: HeaderProps) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -19,8 +27,6 @@ export const Header = ({ onReserve }: HeaderProps) => {
   const isHome = location.pathname === '/';
   const forceOpaque = OPAQUE_ROUTES.some(r => location.pathname.startsWith(r));
   const opaque = forceOpaque || isScrolled;
-  const pathnameRef = useRef(location.pathname);
-  pathnameRef.current = location.pathname;
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 50);
@@ -36,16 +42,13 @@ export const Header = ({ onReserve }: HeaderProps) => {
 
   // Sync activeNav avec la route courante
   useEffect(() => {
-    if (location.pathname === '/mes-reservations') setActiveNav('mes-reservations');
-    else if (location.pathname === '/a-propos') setActiveNav('a-propos');
-    else if (location.pathname === '/chambres') setActiveNav('chambres');
-    else if (location.pathname === '/') setActiveNav('accueil');
+    setActiveNav(getNavFromPathname(location.pathname));
   }, [location.pathname]);
 
   // Détection automatique au scroll
   useEffect(() => {
     const getActiveSection = () => {
-      const pathname = pathnameRef.current;
+      const pathname = location.pathname;
 
       // Priorité 1 : footer visible (toutes pages)
       const footer = document.getElementById('footer');
@@ -55,10 +58,7 @@ export const Header = ({ onReserve }: HeaderProps) => {
       }
 
       // Priorité 2 : pages fixes
-      if (pathname === '/a-propos') { setActiveNav('a-propos'); return; }
-      if (pathname === '/chambres') { setActiveNav('chambres'); return; }
-      if (pathname === '/mes-reservations') { setActiveNav('mes-reservations'); return; }
-      if (pathname.startsWith('/chambres/')) { setActiveNav('chambres'); return; }
+      if (pathname !== '/') { setActiveNav(getNavFromPathname(pathname)); return; }
 
       // Priorité 3 : page d'accueil - section au centre
       const mid = window.innerHeight / 2;
@@ -72,7 +72,7 @@ export const Header = ({ onReserve }: HeaderProps) => {
     window.addEventListener('scroll', getActiveSection, { passive: true });
     getActiveSection();
     return () => window.removeEventListener('scroll', getActiveSection);
-  }, []);
+  }, [location.pathname]);
 
   const handleAccueil = (e: React.MouseEvent) => {
     e.preventDefault();
