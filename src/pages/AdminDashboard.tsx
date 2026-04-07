@@ -1,10 +1,20 @@
 import React, { useState } from 'react';
+
+const hashPassword = async (input: string): Promise<string> => {
+  const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+};
 import { useReservations, Reservation, getNights, ReservationStatus } from '../hooks/useReservations';
 import { rooms } from '../data/rooms';
 import { Lock, LayoutDashboard, CalendarDays, DollarSign, Users, Clock, LogOut, CheckCircle2, XCircle, Download, LucideIcon, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD ?? 'admin123';
+const ADMIN_PASSWORD_HASH = import.meta.env.VITE_ADMIN_PASSWORD_HASH ?? '';
+
+const sanitizeCSVField = (value: string | number): string => {
+  const str = String(value);
+  return /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
+};
 
 const exportCSV = (reservations: Reservation[]) => {
   const headers = ['ID', 'Client', 'Téléphone', 'Email', 'Chambre', 'Arrivée', 'Départ', 'Nuits', 'Paiement', 'Statut', 'Créé le'];
@@ -23,7 +33,7 @@ const exportCSV = (reservations: Reservation[]) => {
       r.paymentMethod,
       r.status,
       new Date(r.createdAt).toLocaleDateString('fr-FR')
-    ].join(';');
+    ].map(sanitizeCSVField).join(';');
   });
   const csv = [headers.join(';'), ...rows].join('\n');
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -41,11 +51,16 @@ export const AdminDashboard = () => {
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState<ReservationStatus | 'Tous'>('Tous');
 
-  const { reservations, updateStatus, deleteReservation } = useReservations();
+  const { reservations, storageError, updateStatus, deleteReservation } = useReservations();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === ADMIN_PASSWORD) {
+    if (!ADMIN_PASSWORD_HASH) {
+      setError('Mot de passe admin non configuré (VITE_ADMIN_PASSWORD_HASH manquant)');
+      return;
+    }
+    const hash = await hashPassword(password);
+    if (hash === ADMIN_PASSWORD_HASH) {
       setIsAuthenticated(true);
       setError('');
     } else {
@@ -149,6 +164,12 @@ export const AdminDashboard = () => {
           </button>
         </div>
 
+        {storageError && (
+          <div className="mb-6 flex items-center gap-3 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+            <XCircle size={18} className="shrink-0" />
+            {storageError}
+          </div>
+        )}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
           <div>
             <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Vue d'ensemble</h1>
