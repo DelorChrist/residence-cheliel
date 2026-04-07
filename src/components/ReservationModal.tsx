@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X, CheckCircle2, ChevronRight, ChevronLeft, User, CalendarDays, CreditCard, Sun, Moon } from 'lucide-react';
-import { rooms } from '../data/rooms';
+import { useRooms } from '../hooks/useRooms';
 import { useReservations, PaymentMethod, StayType } from '../hooks/useReservations';
 import { getNights } from '../hooks/useReservations';
 
@@ -19,6 +19,7 @@ const STEPS = [
 
 export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
   const { addReservation } = useReservations();
+  const { rooms } = useRooms();
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [formData, setFormData] = useState({
     clientName: '',
@@ -62,7 +63,7 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
       <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={step < 4 ? onClose : undefined}></div>
 
       <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-lg z-10 overflow-hidden max-h-[85vh] overflow-y-auto">
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 z-10 bg-white rounded-full p-1.5 shadow-sm transition-colors">
+        <button onClick={onClose} aria-label="Fermer" className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 z-10 bg-white rounded-full p-1.5 shadow-sm transition-colors">
           <X size={20} />
         </button>
 
@@ -120,7 +121,7 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                       <label className={`cursor-pointer rounded-2xl border-2 p-4 flex flex-col items-center gap-2 transition-all ${
                         formData.stayType === 'nuitée' ? 'border-primary-500 bg-primary-50 shadow-sm' : 'border-gray-100 hover:border-primary-200'
                       }`}>
-                        <input type="radio" name="stayType" value="nuitée" checked={formData.stayType === 'nuitée'} onChange={() => setFormData({...formData, stayType: 'nuitée'})} className="sr-only" />
+                        <input type="radio" name="stayType" value="nuitée" aria-label="Nuitée (22h à 12h)" checked={formData.stayType === 'nuitée'} onChange={() => setFormData({...formData, stayType: 'nuitée'})} className="sr-only" />
                         <Moon size={22} className={formData.stayType === 'nuitée' ? 'text-primary-600' : 'text-gray-400'} />
                         <span className="font-semibold text-sm text-gray-800">Nuitée</span>
                         <span className="text-xs text-gray-500">22h → 12h</span>
@@ -129,7 +130,7 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                       <label className={`cursor-pointer rounded-2xl border-2 p-4 flex flex-col items-center gap-2 transition-all ${
                         formData.stayType === 'journée' ? 'border-primary-500 bg-primary-50 shadow-sm' : 'border-gray-100 hover:border-primary-200'
                       }`}>
-                        <input type="radio" name="stayType" value="journée" checked={formData.stayType === 'journée'} onChange={() => setFormData({...formData, stayType: 'journée'})} className="sr-only" />
+                        <input type="radio" name="stayType" value="journée" aria-label="Journée (12h à 12h)" checked={formData.stayType === 'journée'} onChange={() => setFormData({...formData, stayType: 'journée'})} className="sr-only" />
                         <Sun size={22} className={formData.stayType === 'journée' ? 'text-primary-600' : 'text-gray-400'} />
                         <span className="font-semibold text-sm text-gray-800">Journée</span>
                         <span className="text-xs text-gray-500">12h → 12h</span>
@@ -140,12 +141,12 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="text-sm font-semibold text-gray-700 mb-2 block">Date d'arrivée</label>
-                      <input type="date" min={today} className={inputClass} value={formData.checkIn} onChange={e => setFormData({...formData, checkIn: e.target.value, checkOut: ''})} />
+                      <label htmlFor="checkIn" className="text-sm font-semibold text-gray-700 mb-2 block">Date d'arrivée</label>
+                      <input id="checkIn" type="date" min={today} className={inputClass} value={formData.checkIn} onChange={e => setFormData({...formData, checkIn: e.target.value, checkOut: ''})} />
                     </div>
                     <div>
-                      <label className="text-sm font-semibold text-gray-700 mb-2 block">Date de départ</label>
-                      <input type="date" min={formData.checkIn || today} className={inputClass} value={formData.checkOut} onChange={e => setFormData({...formData, checkOut: e.target.value})} />
+                      <label htmlFor="checkOut" className="text-sm font-semibold text-gray-700 mb-2 block">Date de départ</label>
+                      <input id="checkOut" type="date" min={formData.checkIn || today} className={inputClass} value={formData.checkOut} onChange={e => setFormData({...formData, checkOut: e.target.value})} />
                     </div>
                   </div>
                   {nights > 0 && (
@@ -214,7 +215,7 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                       <span>Départ</span><span className="font-medium text-gray-800">{formData.checkOut ? new Date(formData.checkOut).toLocaleDateString('fr-FR') : '-'}</span>
                     </div>
                     <div className="flex justify-between text-sm text-gray-600">
-                      <span>Durée</span><span className="font-medium text-gray-800">{nights} nuit{nights > 1 ? 's' : ''}</span>
+                      <span>Durée</span><span className="font-medium text-gray-800">{nights} {formData.stayType === 'nuitée' ? 'nuit' : 'jour'}{nights > 1 ? 's' : ''}</span>
                     </div>
                     <div className="border-t border-gray-200 pt-3 flex justify-between font-bold text-gray-900">
                       <span>Total estimé</span><span className="text-primary-600">{total.toLocaleString()} FCFA</span>

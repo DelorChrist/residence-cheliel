@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link, Navigate } from 'react-router-dom';
 import { ArrowLeft, Users, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
-import { rooms } from '../data/rooms';
+import { useRooms } from '../hooks/useRooms';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
 import { WhatsAppButton } from '../components/WhatsAppButton';
@@ -10,10 +10,17 @@ import { ScrollToTop } from '../components/ScrollToTop';
 
 export const ChambreDetail = () => {
   const { id } = useParams<{ id: string }>();
+  const { rooms, loading } = useRooms();
   const room = rooms.find(r => r.id === id);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  if (loading) return (
+    <div className="min-h-screen bg-[#faf9f8] flex items-center justify-center">
+      <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
 
   if (!room) return <Navigate to="/chambres" replace />;
 
@@ -51,10 +58,10 @@ export const ChambreDetail = () => {
               {/* Navigation flèches */}
               {room.images.length > 1 && (
                 <>
-                  <button onClick={prev} className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-white/80 hover:bg-white rounded-full flex items-center justify-center shadow-md transition-colors">
+                  <button onClick={prev} aria-label="Image précédente" className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-white/80 hover:bg-white rounded-full flex items-center justify-center shadow-md transition-colors">
                     <ChevronLeft size={20} className="text-gray-700" />
                   </button>
-                  <button onClick={next} className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-white/80 hover:bg-white rounded-full flex items-center justify-center shadow-md transition-colors">
+                  <button onClick={next} aria-label="Image suivante" className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-white/80 hover:bg-white rounded-full flex items-center justify-center shadow-md transition-colors">
                     <ChevronRight size={20} className="text-gray-700" />
                   </button>
                 </>

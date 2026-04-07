@@ -5,7 +5,7 @@ import { Footer } from '../components/Footer';
 import { WhatsAppButton } from '../components/WhatsAppButton';
 import { ScrollToTop } from '../components/ScrollToTop';
 import { useReservations, Reservation } from '../hooks/useReservations';
-import { rooms } from '../data/rooms';
+import { useRooms } from '../hooks/useRooms';
 import { getNights } from '../hooks/useReservations';
 
 export const MesReservationsPage = () => {
@@ -100,6 +100,7 @@ export const MesReservationsPage = () => {
 };
 
 const ReservationCard = ({ reservation: res }: { reservation: Reservation }) => {
+  const { rooms } = useRooms();
   const room = rooms.find(r => r.id === res.roomId);
   const nights = getNights(res.checkIn, res.checkOut);
   const price = room ? (res.stayType === 'journée' ? room.priceDay : room.priceNight) : 0;

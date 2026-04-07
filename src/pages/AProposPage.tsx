@@ -6,10 +6,11 @@ import { WhatsAppButton } from '../components/WhatsAppButton';
 import { ReservationModal } from '../components/ReservationModal';
 import { ScrollToTop } from '../components/ScrollToTop';
 import { useState } from 'react';
-import { RESIDENCE_INFO } from '../data/rooms';
+import { useRooms } from '../hooks/useRooms';
 
 export const AProposPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const { rooms, totalApartments } = useRooms();
 
   return (
     <div className="min-h-screen bg-[#faf9f8] font-sans text-[#333]">
@@ -51,7 +52,7 @@ export const AProposPage = () => {
                 Nichée à Morofé, à 100m du foyer des jeunes de Yamoussoukro, la Résidence Cheliel est bien plus qu'un simple hébergement. C'est une expérience de vie alliant le luxe discret à la chaleur de l'hospitalité ivoirienne.
               </p>
               <p className="text-gray-600 text-lg leading-relaxed mb-5">
-                Avec ses {RESIDENCE_INFO.totalApartments} appartements entièrement meublés et équipés, la résidence offre un cadre idéal pour les séjours professionnels, familiaux ou romantiques dans la capitale politique de la Côte d'Ivoire.
+                Avec ses {totalApartments} appartements entièrement meublés et équipés, la résidence offre un cadre idéal pour les séjours professionnels, familiaux ou romantiques dans la capitale politique de la Côte d'Ivoire.
               </p>
               <p className="text-gray-600 text-lg leading-relaxed mb-8">
                 Notre mission est simple : vous offrir le confort d'un chez-soi avec les services d'un hôtel haut de gamme, dans un environnement sécurisé et paisible.
@@ -66,9 +67,9 @@ export const AProposPage = () => {
         <div className="container mx-auto px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
             {[
-              { value: `${RESIDENCE_INFO.totalApartments}`, label: 'Appartements' },
-              { value: `${RESIDENCE_INFO.kingSize.count}`, label: 'Apparts King Size' },
-              { value: `${RESIDENCE_INFO.double.count}`, label: 'Apparts Double' },
+              { value: `${totalApartments}`, label: 'Appartements' },
+              { value: `${rooms.filter(r => r.capacity.includes('3')).length}`, label: 'Apparts King Size' },
+              { value: `${rooms.filter(r => r.capacity.includes('2')).length}`, label: 'Apparts Double' },
               { value: '24/7', label: 'Service disponible' },
             ].map((stat, i) => (
               <div key={i}>
@@ -114,10 +115,12 @@ export const AProposPage = () => {
             <h2 className="text-4xl font-heading font-bold text-gray-900">Galerie Photos</h2>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {[
-              '/images/chambre1.jpg', '/images/chambre2.jpg', '/images/chambre3.jpg',
-              '/images/chambre4.jpeg', '/images/piscine.jpg', '/images/bar.jpeg',
-            ].map((src, i) => (
+            {rooms.flatMap(r => r.images).slice(0, 6).map((src, i) => (
+              <div key={i} className="aspect-square rounded-2xl overflow-hidden shadow-md group">
+                <img src={src} alt={`Résidence Cheliel ${i + 1}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" loading="lazy" />
+              </div>
+            ))}
+            {rooms.flatMap(r => r.images).length === 0 && ['/images/piscine.jpg', '/images/bar.jpeg'].map((src, i) => (
               <div key={i} className="aspect-square rounded-2xl overflow-hidden shadow-md group">
                 <img src={src} alt={`Résidence Cheliel ${i + 1}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" loading="lazy" />
               </div>
@@ -203,7 +206,7 @@ export const AProposPage = () => {
                 src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3966.0!2d-5.2767!3d6.8276!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zNsKwNDknMzkuNCJOIDXCsDE2JzM2LjEiVw!5e0!3m2!1sfr!2sci!4v1234567890"
                 width="100%"
                 height="100%"
-                style={{ border: 0, minHeight: '320px' }}
+                className="border-0"
                 allowFullScreen
                 loading="lazy"
                 referrerPolicy="no-referrer-when-downgrade"

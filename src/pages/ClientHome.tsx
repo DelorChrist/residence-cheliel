@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Star, Wifi, Wind, MapPin, ArrowUp, ArrowRight } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
-import { rooms, Room, RESIDENCE_INFO } from '../data/rooms';
+import { Room } from '../data/rooms';
+import { useRooms } from '../hooks/useRooms';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
 import { WhatsAppButton } from '../components/WhatsAppButton';
@@ -13,6 +14,7 @@ export const ClientHome = () => {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const { rooms, totalApartments } = useRooms();
 
   const location = useLocation();
 
@@ -125,7 +127,7 @@ export const ClientHome = () => {
                 </p>
                 <div className="grid grid-cols-3 gap-6 pt-8 border-t border-gray-200">
                   {[
-                    { value: `${RESIDENCE_INFO.totalApartments}`, label: 'Appartements' },
+                    { value: `${totalApartments}`, label: 'Appartements' },
                     { value: '100%', label: 'Clients satisfaits' },
                     { value: '24/7', label: 'Service disponible' },
                   ].map((stat, i) => (
