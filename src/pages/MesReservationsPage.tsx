@@ -43,14 +43,14 @@ const fromDB = (r: ReservationRow): Reservation => ({
 const formatCurrency = (value: number) => `${value.toLocaleString()} FCFA`;
 
 export const MesReservationsPage = () => {
-  const [phone, setPhone] = useState('');
+  const [query, setQuery] = useState('');
   const [searched, setSearched] = useState(false);
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<Reservation[]>([]);
   const [error, setError] = useState<string | null>(null);
   const { rooms } = useRooms();
 
-  const normalize = (p: string) => p.replace(/\s/g, '');
+  const normalize = (value: string) => value.replace(/\s/g, '');
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,7 +58,7 @@ export const MesReservationsPage = () => {
     setError(null);
 
     const { data, error } = await supabase.rpc('search_reservations_by_phone', {
-      p_phone: normalize(phone),
+      p_query: normalize(query),
     });
 
     if (error) {
@@ -99,21 +99,21 @@ export const MesReservationsPage = () => {
           {/* Formulaire de recherche */}
           <form onSubmit={handleSearch} className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8 mb-10">
             <h2 className="text-xl font-heading font-bold text-gray-900 mb-2">Rechercher mes réservations</h2>
-            <p className="text-gray-500 text-sm mb-6">Entrez le numéro de téléphone utilisé lors de votre réservation.</p>
+            <p className="text-gray-500 text-sm mb-6">Entrez le numéro de téléphone utilisé lors de votre réservation ou votre code de réservation (ex: RES-C50D8627).</p>
             <div className="flex gap-3">
               <div className="relative flex-1">
                 <Phone size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
-                  type="tel"
-                  value={phone}
-                  onChange={e => { setPhone(e.target.value); setSearched(false); }}
-                  placeholder="+225 07 79 27 79 24"
+                  type="text"
+                  value={query}
+                  onChange={e => { setQuery(e.target.value); setSearched(false); }}
+                  placeholder="+225 07 79 27 79 24 ou RES-C50D8627"
                   className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all"
                 />
               </div>
               <button
                 type="submit"
-                disabled={!phone.trim() || searching}
+                disabled={!query.trim() || searching}
                 className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-6 py-3 rounded-xl font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md"
               >
                 <Search size={18} /> {searching ? 'Recherche...' : 'Rechercher'}

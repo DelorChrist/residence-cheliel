@@ -1,9 +1,104 @@
 import { useEffect, useState } from 'react';
 import { X, CheckCircle2, ChevronRight, ChevronLeft, User, CalendarDays, CreditCard, Sun, Moon } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import { supabase } from '../lib/supabase';
 import { useRooms } from '../hooks/useRooms';
 import { useReservations, PaymentMethod, StayType } from '../hooks/useReservations';
 import { getNights, getReservationPricing, LONG_STAY_DISCOUNT_THRESHOLD } from '../hooks/useReservations';
+
+const normalizeCustomerPhone = (phone: string) => {
+  const cleaned = phone.replace(/[\s().-]/g, '');
+
+  if (!cleaned) return '';
+  if (cleaned.startsWith('+225') && /^\+225\d{8,10}$/.test(cleaned)) return cleaned;
+  if (cleaned.startsWith('225') && /^225\d{8,10}$/.test(cleaned)) return `+${cleaned}`;
+  if (/^0\d{9}$/.test(cleaned)) return `+225${cleaned.slice(1)}`;
+
+  return '';
+};
+
+const isValidEmail = (value: string) => /[^\s@]+@[^\s@]+\.[^\s@]+/.test(value.trim());
+
+const formatCurrency = (value: number) => `${value.toLocaleString('fr-FR')} FCFA`;
+
+const downloadReceiptPdf = (data: {
+  reservationNumber: string;
+  clientName: string;
+  clientEmail: string;
+  roomName: string;
+  roomCapacity: string;
+  checkIn: string;
+  checkOut: string;
+  stayType: StayType;
+  paymentMethod: PaymentMethod;
+  total: number;
+  nights: number;
+}) => {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const left = 16;
+  let y = 18;
+
+  doc.setFillColor(140, 104, 70);
+  doc.rect(0, 0, 210, 18, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.text('RÉSIDENCE CHELIEL', left, 11);
+
+  doc.setTextColor(34, 34, 34);
+  doc.setFontSize(22);
+  doc.text('Reçu de réservation', left, y + 14);
+  y += 24;
+
+  doc.setDrawColor(229, 221, 212);
+  doc.setFillColor(250, 247, 244);
+  doc.roundedRect(left, y, 178, 14, 3, 3, 'F');
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Montant payé: ${formatCurrency(data.total)}`, left + 4, y + 9);
+  doc.text('Statut: En attente', 128, y + 9);
+  y += 22;
+
+  const rows = [
+    ['Numéro de reçu', data.reservationNumber],
+    ['Client', data.clientName],
+    ['Email', data.clientEmail],
+    ['Chambre', data.roomName],
+    ['Capacité', data.roomCapacity || '-'],
+    ['Arrivée', new Date(data.checkIn).toLocaleDateString('fr-FR')],
+    ['Départ', new Date(data.checkOut).toLocaleDateString('fr-FR')],
+    ['Type', data.stayType === 'nuitée' ? 'Nuitée' : 'Journée'],
+    ['Paiement', data.paymentMethod],
+    ['Durée', `${data.nights} ${data.stayType === 'nuitée' ? 'nuit' : 'jour'}${data.nights > 1 ? 's' : ''}`],
+  ];
+
+  doc.setFont('helvetica', 'normal');
+  rows.forEach(([label, value], index) => {
+    const rowY = y + Math.floor(index / 2) * 18;
+    const rowX = index % 2 === 0 ? left : 107;
+    doc.setFillColor(250, 247, 244);
+    doc.setDrawColor(238, 227, 217);
+    doc.roundedRect(rowX, rowY, 87, 15, 3, 3, 'FD');
+    doc.setFontSize(8.5);
+    doc.setTextColor(122, 106, 91);
+    doc.text(label, rowX + 4, rowY + 5.5);
+    doc.setFontSize(10.5);
+    doc.setTextColor(34, 34, 34);
+    doc.setFont('helvetica', 'bold');
+    doc.text(String(value), rowX + 4, rowY + 11);
+    doc.setFont('helvetica', 'normal');
+  });
+
+  const totalY = y + 90;
+  doc.setDrawColor(230, 223, 216);
+  doc.line(left, totalY, 194, totalY);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text(`Montant payé par le client: ${formatCurrency(data.total)}`, left, totalY + 9);
+  doc.text(`Date de génération: ${new Date().toLocaleString('fr-FR')}`, left, totalY + 18);
+
+  doc.save(`recu-${data.reservationNumber.toLowerCase()}.pdf`);
+};
 
 const today = new Date().toISOString().split('T')[0];
 
@@ -25,6 +120,7 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
   const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
   const [alternativeRoomIds, setAlternativeRoomIds] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [reservationNumber, setReservationNumber] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     clientName: '',
     phone: '',
@@ -98,10 +194,25 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
   }, [formData.checkIn, formData.roomId, rooms]);
 
   const canNext1 = Boolean(selectedRoom && formData.checkIn && formData.checkOut && !availabilityMessage);
-  const canNext2 = formData.clientName && formData.phone;
+  const canNext2 = Boolean(formData.clientName.trim() && formData.phone.trim() && isValidEmail(formData.email));
 
   const handleSubmit = async () => {
     setSubmitError(null);
+    setReservationNumber(null);
+
+    const normalizedPhone = normalizeCustomerPhone(formData.phone);
+    if (!normalizedPhone) {
+      setStep(2);
+      setSubmitError('Numéro de téléphone invalide. Utilisez un format local comme 05XXXXXXXX ou international comme +225XXXXXXXXX.');
+      return;
+    }
+
+    if (!isValidEmail(formData.email)) {
+      setStep(2);
+      setSubmitError('Adresse email invalide. Elle est obligatoire pour recevoir la confirmation par email.');
+      return;
+    }
+
     const { data: isAvailable } = await supabase.rpc('is_room_available_for_checkin', {
       p_room_id: formData.roomId,
       p_check_in: formData.checkIn,
@@ -122,7 +233,7 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
 
     const result = await addReservation({
       clientName: formData.clientName,
-      phone: formData.phone,
+      phone: normalizedPhone,
       email: formData.email,
       roomId: formData.roomId,
       stayType: formData.stayType,
@@ -137,6 +248,8 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
       setSubmitError(result.error || 'Impossible d’enregistrer la réservation.');
       return;
     }
+
+    setReservationNumber(result.reservation.id);
 
     setStep(4);
   };
@@ -296,8 +409,9 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                     <input type="tel" className={inputClass} value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} placeholder="+225 00 00 00 00 00" />
                   </div>
                   <div>
-                    <label className="text-sm font-semibold text-gray-700 mb-2 block">Email <span className="text-gray-400 font-normal">(optionnel)</span></label>
+                    <label className="text-sm font-semibold text-gray-700 mb-2 block">Email *</label>
                     <input type="email" className={inputClass} value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="email@exemple.com" />
+                    <p className="mt-2 text-xs text-gray-500">Obligatoire pour recevoir automatiquement l'email de confirmation.</p>
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-gray-700 mb-2 block">Demandes spéciales <span className="text-gray-400 font-normal">(optionnel)</span></label>
@@ -395,14 +509,38 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
               Merci <strong className="text-gray-800">{formData.clientName}</strong>. Votre demande a été enregistrée avec succès.
             </p>
             <p className="text-gray-500 mb-8 max-w-sm leading-relaxed">
-              Notre équipe vous contactera au <strong className="text-gray-800">{formData.phone}</strong> pour le paiement via <strong className="text-gray-800">{formData.paymentMethod}</strong>.
+              Le numéro de réservation ci-dessous vous permettra de suivre votre dossier.
             </p>
             <div className="bg-primary-50 rounded-2xl p-4 w-full mb-6 text-left space-y-2">
+              <div className="flex justify-between text-sm"><span className="text-gray-500">Numéro de réservation</span><span className="font-medium">{reservationNumber || '-'}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">Appartement</span><span className="font-medium">{selectedRoom?.name}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">Arrivée</span><span className="font-medium">{new Date(formData.checkIn).toLocaleDateString('fr-FR')}</span></div>
               <div className="flex justify-between text-sm"><span className="text-gray-500">Départ</span><span className="font-medium">{new Date(formData.checkOut).toLocaleDateString('fr-FR')}</span></div>
               <div className="flex justify-between text-sm font-bold border-t border-primary-100 pt-2"><span>Total</span><span className="text-primary-600">{total.toLocaleString()} FCFA</span></div>
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (!reservationNumber || !selectedRoom) return;
+                downloadReceiptPdf({
+                  reservationNumber,
+                  clientName: formData.clientName,
+                  clientEmail: formData.email,
+                  roomName: selectedRoom.name,
+                  roomCapacity: selectedRoom.capacity,
+                  checkIn: formData.checkIn,
+                  checkOut: formData.checkOut,
+                  stayType: formData.stayType,
+                  paymentMethod: formData.paymentMethod,
+                  total,
+                  nights,
+                });
+              }}
+              disabled={!reservationNumber || !selectedRoom}
+              className="mb-4 w-full rounded-xl border border-primary-200 bg-white px-4 py-3 font-medium text-primary-700 transition-colors hover:bg-primary-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Télécharger le reçu PDF
+            </button>
             <button onClick={onClose} className="bg-primary-600 hover:bg-primary-700 text-white px-8 py-3 rounded-xl font-medium transition-colors w-full">
               Fermer
             </button>

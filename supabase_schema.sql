@@ -85,8 +85,10 @@ $$;
 grant execute on function public.list_available_rooms_for_checkin(date) to anon, authenticated;
 
 -- Recherche publique limitée: permet aux clients de retrouver uniquement
--- leurs réservations en filtrant par numéro de téléphone.
-create or replace function public.search_reservations_by_phone(p_phone text)
+-- leurs réservations en filtrant par numéro de téléphone ou code de réservation.
+drop function if exists public.search_reservations_by_phone(text);
+
+create or replace function public.search_reservations_by_phone(p_query text)
 returns table (
   id text,
   client_name text,
@@ -119,11 +121,85 @@ as $$
     r.status,
     r.created_at
   from reservations r
-  where regexp_replace(r.phone, '\\s+', '', 'g') = regexp_replace(coalesce(p_phone, ''), '\\s+', '', 'g')
+  where regexp_replace(r.phone, '\\s+', '', 'g') = regexp_replace(coalesce(p_query, ''), '\\s+', '', 'g')
+     or upper(r.id) = upper(coalesce(p_query, ''))
+     or upper(r.id) like upper(coalesce(p_query, '')) || '%'
   order by r.created_at desc;
 $$;
 
 grant execute on function public.search_reservations_by_phone(text) to anon, authenticated;
+
+-- ============================================================
+-- EMAIL NOTIFICATION: confirmation de réservation
+-- Déclenche un envoi d'email automatique lorsqu'une réservation
+-- passe au statut 'Confirmé'. L'appel HTTP est asynchrone et
+-- n'empêche pas l'enregistrement ou la mise à jour de la ligne.
+-- ============================================================
+create extension if not exists pg_net;
+
+create or replace function public.enqueue_reservation_confirmation_email()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, net
+as $$
+declare
+  room_record rooms%rowtype;
+  nights integer;
+  amount_paid integer;
+  payload jsonb;
+begin
+  if new.status = 'Confirmé' and (tg_op = 'INSERT' or old.status is distinct from new.status) then
+    select *
+    into room_record
+    from rooms
+    where id = new.room_id;
+
+    if not found then
+      return new;
+    end if;
+
+    nights := greatest(1, (new.check_out - new.check_in));
+
+    amount_paid := case
+      when new.stay_type = 'journée' then room_record.price_day * nights
+      else room_record.price_night * nights
+    end;
+
+    if nights >= 3 then
+      amount_paid := amount_paid - round(amount_paid * 0.2)::int;
+    end if;
+
+    payload := jsonb_build_object(
+      'reservationId', new.id,
+      'clientName', new.client_name,
+      'clientEmail', new.email,
+      'roomName', room_record.name,
+      'checkIn', new.check_in,
+      'checkOut', new.check_out,
+      'stayType', new.stay_type,
+      'amountPaid', amount_paid,
+      'paymentMethod', new.payment_method,
+      'siteName', 'Résidence Cheliel'
+    );
+
+    perform net.http_post(
+      url := 'https://mrmghalpwtnxqakmmxpp.supabase.co/functions/v1/send-reservation-email',
+      body := payload,
+      headers := jsonb_build_object('Content-Type', 'application/json')
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trigger_reservation_confirmation_email on reservations;
+
+create trigger trigger_reservation_confirmation_email
+after insert or update of status on reservations
+for each row
+execute function public.enqueue_reservation_confirmation_email();
 
 -- ============================================================
 -- RESET TEST DATA (à exécuter une seule fois pour repartir à zéro)
@@ -221,3 +297,5 @@ using (bucket_id = 'room-images' and auth.role() = 'authenticated');
 create policy "Suppression admin room-images"
 on storage.objects for delete
 using (bucket_id = 'room-images' and auth.role() = 'authenticated');
+
+

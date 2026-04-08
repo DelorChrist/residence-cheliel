@@ -321,7 +321,7 @@ const ReservationsTab = ({ reservations, conflictIds, rooms, updateStatus, delet
                     <td className="px-6 py-4 text-right space-x-2">
                       {res.status === 'En attente' && (
                         <>
-                          <button type="button" onClick={() => updateStatus(res.id, 'Confirmé')} aria-label="Confirmer" className="text-green-600 hover:text-green-900 bg-green-50 p-2 rounded-lg transition-colors"><CheckCircle2 size={18} /></button>
+                          <button type="button" onClick={() => updateStatus(res.id, 'Confirmé')} aria-label="Confirmer et envoyer l'email" title="Confirmer et envoyer l'email" className="text-green-600 hover:text-green-900 bg-green-50 p-2 rounded-lg transition-colors"><CheckCircle2 size={18} /></button>
                           <button type="button" onClick={() => updateStatus(res.id, 'Annulé')} aria-label="Annuler" className="text-red-600 hover:text-red-900 bg-red-50 p-2 rounded-lg transition-colors"><XCircle size={18} /></button>
                         </>
                       )}
