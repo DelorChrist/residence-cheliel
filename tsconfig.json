@@ -9,6 +9,7 @@
 
     /* Bundler mode */
     "moduleResolution": "bundler",
+    "ignoreDeprecations": "6.0",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -20,6 +21,8 @@
     "paths": {
       "@/*": ["src/*"]
     },
+
+    "forceConsistentCasingInFileNames": true,
 
     /* Linting */
     "strict": true,

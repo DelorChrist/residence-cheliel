@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Star, Wifi, Wind, MapPin, ArrowUp, ArrowRight } from 'lucide-react';
-import { Link, useLocation } from 'react-router-dom';
-import { rooms, Room, RESIDENCE_INFO } from '../data/rooms';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Room } from '../data/rooms';
+import { useRooms } from '../hooks/useRooms';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
 import { WhatsAppButton } from '../components/WhatsAppButton';
@@ -13,8 +14,10 @@ export const ClientHome = () => {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const { rooms, totalApartments } = useRooms();
 
   const location = useLocation();
+  const navigate = useNavigate();
 
   const handleScroll = useCallback(() => {
     setShowScrollTop(window.scrollY > 400);
@@ -45,7 +48,7 @@ export const ClientHome = () => {
       {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
 
       <div className="min-h-screen font-sans bg-[#faf9f8] text-[#333]">
-        <Header onReserve={() => openReservationModal()} />
+        <Header onReserve={() => navigate('/chambres')} />
 
         {/* Hero Section */}
         <section id="accueil" className="relative h-screen flex items-center justify-center overflow-hidden">
@@ -57,18 +60,18 @@ export const ClientHome = () => {
           <div className="container relative z-10 mx-auto px-6 text-center mt-20">
             <p className="text-primary-300 font-medium tracking-[0.25em] uppercase text-xs md:text-sm mb-4">L'art de vivre à Yamoussoukro</p>
             <h1 className="text-4xl sm:text-5xl md:text-7xl font-heading font-bold text-white mb-6 leading-tight drop-shadow-lg">
-              Votre havre de paix <br /> au cœur de Yakro
+              Votre havre de paix <br /> au cœur de Yamoussoukro  
             </h1>
             <p className="text-base md:text-xl text-white/90 mb-10 max-w-2xl mx-auto font-light leading-relaxed">
-              Venez vivre l'élégance des résidences Cheliel à Yamoussoukro, Morofé à 100m du foyer des jeunes.
+              Venez vivre un sejour inoubliable aux résidences Cheliel à Yamoussoukro, Morofé à 100m du foyer des jeunes.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <button
-                onClick={() => openReservationModal()}
+              <Link
+                to="/chambres"
                 className="animate-pulse bg-primary-600 hover:bg-primary-500 hover:animate-none text-white px-8 py-4 rounded-full font-medium text-lg transition-all transform hover:scale-105 shadow-xl shadow-primary-900/30"
               >
                 Réservez votre séjour
-              </button>
+              </Link>
               <a href="#chambres" className="bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/30 text-white px-8 py-4 rounded-full font-medium text-lg transition-all">
                 Découvrez nos suites
               </a>
@@ -125,7 +128,7 @@ export const ClientHome = () => {
                 </p>
                 <div className="grid grid-cols-3 gap-6 pt-8 border-t border-gray-200">
                   {[
-                    { value: `${RESIDENCE_INFO.totalApartments}`, label: 'Appartements' },
+                    { value: `${totalApartments}`, label: 'Appartements' },
                     { value: '100%', label: 'Clients satisfaits' },
                     { value: '24/7', label: 'Service disponible' },
                   ].map((stat, i) => (
@@ -196,7 +199,7 @@ const RoomSection = ({ room, reversed, onReserve }: { room: Room, reversed: bool
         <Link to={`/chambres/${room.id}`} className="relative aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl block group">
           <img src={activeImage} alt={room.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy" />
           <div className="absolute top-5 left-5 bg-white/95 backdrop-blur-md px-4 py-2 rounded-full font-bold text-primary-900 shadow-lg text-sm">
-            {room.price.toLocaleString()} FCFA <span className="font-normal text-gray-500">/ 24h</span>
+            {room.priceNight.toLocaleString()} FCFA <span className="font-normal text-gray-500">/ nuitée</span>
           </div>
           <div className="absolute top-5 right-5 bg-primary-600 text-white px-3 py-1.5 rounded-full text-xs font-medium shadow-lg">
             {room.capacity}

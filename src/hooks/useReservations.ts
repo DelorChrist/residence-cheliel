@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
 export type PaymentMethod = 'Orange Money' | 'Wave';
 export type ReservationStatus = 'Confirmé' | 'En attente' | 'Annulé';
+export type StayType = 'nuitée' | 'journée';
+export const LONG_STAY_DISCOUNT_THRESHOLD = 3;
+export const LONG_STAY_DISCOUNT_RATE = 0.2;
 
 export interface Reservation {
   id: string;
@@ -9,6 +13,7 @@ export interface Reservation {
   phone: string;
   email?: string;
   roomId: string;
+  stayType: StayType;
   checkIn: string;
   checkOut: string;
   remarks?: string;
@@ -17,95 +22,153 @@ export interface Reservation {
   createdAt: string;
 }
 
-const STORAGE_KEY = 'cheliel_reservations';
-
 export const getNights = (checkIn: string, checkOut: string): number => {
   const diff = new Date(checkOut).getTime() - new Date(checkIn).getTime();
   return Math.max(1, Math.round(diff / (1000 * 60 * 60 * 24)));
 };
 
-const saveToStorage = (data: Reservation[]) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (e) {
-    console.error('Impossible de sauvegarder les réservations:', e);
-  }
+export const getReservationPricing = (unitPrice: number, nights: number) => {
+  const safeNights = Math.max(1, nights);
+  const subtotal = unitPrice * safeNights;
+  const discount = safeNights >= LONG_STAY_DISCOUNT_THRESHOLD
+    ? Math.round(subtotal * LONG_STAY_DISCOUNT_RATE)
+    : 0;
+  return {
+    subtotal,
+    discount,
+    total: subtotal - discount,
+  };
 };
+
+// Convertir snake_case Supabase → camelCase
+const fromDB = (r: any): Reservation => ({
+  id: r.id,
+  clientName: r.client_name,
+  phone: r.phone,
+  email: r.email,
+  roomId: r.room_id,
+  stayType: r.stay_type,
+  checkIn: r.check_in,
+  checkOut: r.check_out,
+  remarks: r.remarks,
+  paymentMethod: r.payment_method,
+  status: r.status,
+  createdAt: r.created_at,
+});
+
+// Convertir camelCase → snake_case Supabase
+const toDB = (r: Omit<Reservation, 'createdAt'>) => ({
+  id: r.id,
+  client_name: r.clientName,
+  phone: r.phone,
+  email: r.email || null,
+  room_id: r.roomId,
+  stay_type: r.stayType,
+  check_in: r.checkIn,
+  check_out: r.checkOut,
+  remarks: r.remarks || null,
+  payment_method: r.paymentMethod,
+  status: r.status,
+});
 
 export const useReservations = () => {
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [storageError, setStorageError] = useState<string | null>(null);
+
+  const isAuthenticated = async () => {
+    const { data } = await supabase.auth.getSession();
+    return Boolean(data.session);
+  };
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        setReservations(JSON.parse(stored));
-      } catch (e) {
-        console.error('Données de réservations corrompues, réinitialisation.');
-        localStorage.removeItem(STORAGE_KEY);
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    const init = async () => {
+      const canReadReservations = await isAuthenticated();
+      if (!canReadReservations) {
+        setLoading(false);
+        return;
       }
-    } else {
-      // Mock data for demo purposes
-      const mock: Reservation[] = [
-        {
-          id: 'RES-001',
-          clientName: 'Kouakou Jean',
-          phone: '+225 07 01 02 03 04',
-          email: 'jean.kouakou@email.com',
-          roomId: 'suite-prestige',
-          checkIn: '2026-05-10',
-          checkOut: '2026-05-15',
-          paymentMethod: 'Orange Money',
-          status: 'Confirmé',
-          createdAt: new Date().toISOString()
-        },
-        {
-          id: 'RES-002',
-          clientName: 'Bamba Aminata',
-          phone: '+225 05 55 66 77 88',
-          roomId: 'studio-confort',
-          checkIn: '2026-05-12',
-          checkOut: '2026-05-14',
-          paymentMethod: 'Wave',
-          status: 'En attente',
-          createdAt: new Date().toISOString()
-        }
-      ];
-      setReservations(mock);
-      saveToStorage(mock);
-    }
+
+      await fetchReservations();
+
+      // Écoute en temps réel
+      channel = supabase
+        .channel('reservations')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
+          fetchReservations();
+        })
+        .subscribe();
+    };
+
+    init();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
   }, []);
 
-  const addReservation = (res: Omit<Reservation, 'id' | 'status' | 'createdAt'>) => {
-    const newReservation: Reservation = {
+  const fetchReservations = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('reservations')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      setStorageError(error.message);
+    } else if (data) {
+      setReservations(data.map(fromDB));
+      setStorageError(null);
+    }
+    setLoading(false);
+  };
+
+  const addReservation = async (res: Omit<Reservation, 'id' | 'status' | 'createdAt'>) => {
+    const newReservation: Omit<Reservation, 'createdAt'> = {
       ...res,
       id: `RES-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
       status: 'En attente',
-      createdAt: new Date().toISOString()
     };
-    
-    const updated = [newReservation, ...reservations];
-    setReservations(updated);
-    saveToStorage(updated);
-    return newReservation;
+
+    const { error } = await supabase.from('reservations').insert(toDB(newReservation));
+    if (error) {
+      console.error('Erreur ajout réservation:', error);
+      return { ok: false as const, error: error.message };
+    }
+
+    if (await isAuthenticated()) await fetchReservations();
+
+    return { ok: true as const, reservation: newReservation };
   };
 
-  const updateStatus = (id: string, status: ReservationStatus) => {
-    const updated = reservations.map(r => r.id === id ? { ...r, status } : r);
-    setReservations(updated);
-    saveToStorage(updated);
+  const updateStatus = async (id: string, status: ReservationStatus) => {
+    const { error } = await supabase
+      .from('reservations')
+      .update({ status })
+      .eq('id', id);
+
+    if (error) console.error('Erreur mise à jour statut:', error);
+    else await fetchReservations();
   };
 
-  const deleteReservation = (id: string) => {
-    const updated = reservations.filter(r => r.id !== id);
-    setReservations(updated);
-    saveToStorage(updated);
+  const deleteReservation = async (id: string) => {
+    const { error } = await supabase
+      .from('reservations')
+      .delete()
+      .eq('id', id);
+
+    if (error) console.error('Erreur suppression:', error);
+    else await fetchReservations();
   };
 
   return {
     reservations,
+    loading,
+    storageError,
     addReservation,
     updateStatus,
-    deleteReservation
+    deleteReservation,
   };
 };

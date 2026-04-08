@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Menu, X } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
@@ -6,7 +6,17 @@ interface HeaderProps {
   onReserve: () => void;
 }
 
+const OPAQUE_ROUTES = ['/chambres/'];
+
 const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+
+const getNavFromPathname = (pathname: string) => {
+  if (pathname === '/a-propos') return 'a-propos';
+  if (pathname === '/chambres') return 'chambres';
+  if (pathname === '/mes-reservations') return 'mes-reservations';
+  if (pathname.startsWith('/chambres/')) return 'chambres';
+  return 'accueil';
+};
 
 export const Header = ({ onReserve }: HeaderProps) => {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -15,8 +25,8 @@ export const Header = ({ onReserve }: HeaderProps) => {
   const location = useLocation();
   const navigate = useNavigate();
   const isHome = location.pathname === '/';
-  const pathnameRef = useRef(location.pathname);
-  pathnameRef.current = location.pathname;
+  const forceOpaque = OPAQUE_ROUTES.some(r => location.pathname.startsWith(r));
+  const opaque = forceOpaque || isScrolled;
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 50);
@@ -32,22 +42,25 @@ export const Header = ({ onReserve }: HeaderProps) => {
 
   // Sync activeNav avec la route courante
   useEffect(() => {
-    if (location.pathname === '/a-propos') setActiveNav('a-propos');
-    else if (location.pathname === '/chambres') setActiveNav('chambres');
-    else if (location.pathname === '/') setActiveNav('accueil');
+    setActiveNav(getNavFromPathname(location.pathname));
   }, [location.pathname]);
 
   // Détection automatique au scroll
   useEffect(() => {
     const getActiveSection = () => {
-      const pathname = pathnameRef.current;
+      const pathname = location.pathname;
+
+      // Priorité 1 : footer visible (toutes pages)
       const footer = document.getElementById('footer');
       if (footer) {
         const rect = footer.getBoundingClientRect();
         if (rect.top < window.innerHeight && rect.bottom > 0) { setActiveNav('contact'); return; }
       }
-      if (pathname === '/a-propos') { setActiveNav('a-propos'); return; }
-      if (pathname === '/chambres') { setActiveNav('chambres'); return; }
+
+      // Priorité 2 : pages fixes
+      if (pathname !== '/') { setActiveNav(getNavFromPathname(pathname)); return; }
+
+      // Priorité 3 : page d'accueil - section au centre
       const mid = window.innerHeight / 2;
       const chambres = document.getElementById('chambres');
       if (chambres) {
@@ -59,7 +72,7 @@ export const Header = ({ onReserve }: HeaderProps) => {
     window.addEventListener('scroll', getActiveSection, { passive: true });
     getActiveSection();
     return () => window.removeEventListener('scroll', getActiveSection);
-  }, []);
+  }, [location.pathname]);
 
   const handleAccueil = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -83,10 +96,10 @@ export const Header = ({ onReserve }: HeaderProps) => {
   };
 
   const desktopClass = (key: string) =>
-    `font-medium transition-all duration-300 ${
+    `text-[15px] font-medium transition-all duration-300 ${
       activeNav === key
         ? 'text-primary-500 border-b-2 border-primary-500 pb-0.5 scale-105'
-        : isScrolled
+        : opaque
         ? 'text-gray-600 hover:text-primary-500'
         : 'text-white/90 hover:text-white'
     }`;
@@ -99,22 +112,23 @@ export const Header = ({ onReserve }: HeaderProps) => {
     }`;
 
   return (
-    <nav className={`fixed w-full z-50 transition-all duration-300 ${isScrolled ? 'bg-white shadow-md py-4' : 'bg-transparent py-6'}`}>
-      <div className="container mx-auto px-6 flex justify-between items-center">
-        <Link to="/" className="flex items-center gap-2" onClick={() => setActiveNav('accueil')}>
-          <img src="/images/logo.png" alt="Logo" className="w-10 h-10 rounded-xl object-cover shadow-md" />
-          <div className={`font-heading font-bold text-2xl tracking-tight ${isScrolled ? 'text-primary-900' : 'text-white'}`}>Résidence Cheliel</div>
+    <nav className={`fixed w-full z-50 transition-all duration-300 ${opaque ? 'bg-white shadow-md py-3' : 'bg-transparent py-5'}`}>
+      <div className="w-full px-6 flex justify-between items-center">
+        <Link to="/" className="flex items-center gap-2 shrink-0" onClick={() => setActiveNav('accueil')}>
+          <img src="/images/logo.png" alt="Logo" className="w-11 h-11 rounded-xl object-cover shadow-md" />
+          <div className={`font-heading font-bold text-2xl tracking-tight ${opaque ? 'text-primary-900' : 'text-white'}`}>Résidence Cheliel</div>
         </Link>
 
         {/* Desktop Nav */}
-        <div className="hidden md:flex items-center gap-8">
+        <div className="hidden md:flex items-center gap-5 ml-auto">
           <a href="#accueil" onClick={handleAccueil} className={desktopClass('accueil')}>Accueil</a>
           <a href="#chambres" onClick={handleChambres} className={desktopClass('chambres')}>Nos Chambres</a>
           <Link to="/a-propos" onClick={() => setActiveNav('a-propos')} className={desktopClass('a-propos')}>À Propos</Link>
+          <Link to="/mes-reservations" onClick={() => setActiveNav('mes-reservations')} className={desktopClass('mes-reservations')}>Mes Réservations</Link>
           <a href="#footer" onClick={handleContact} className={desktopClass('contact')}>Nous Contacter</a>
           <button
             onClick={onReserve}
-            className="bg-primary-600 hover:bg-primary-700 text-white px-6 py-2.5 rounded-full font-medium transition-colors shadow-lg shadow-primary-900/20"
+            className="ml-2 bg-primary-600 hover:bg-primary-700 text-white px-6 py-2.5 rounded-full font-medium transition-colors shadow-lg shadow-primary-900/20 shrink-0"
           >
             Réserver
           </button>
@@ -132,6 +146,7 @@ export const Header = ({ onReserve }: HeaderProps) => {
           <a href="#accueil" onClick={handleAccueil} className={mobileClass('accueil')}>Accueil</a>
           <a href="#chambres" onClick={handleChambres} className={mobileClass('chambres')}>Nos Chambres</a>
           <Link to="/a-propos" onClick={() => { setActiveNav('a-propos'); setMobileMenuOpen(false); }} className={mobileClass('a-propos')}>À Propos</Link>
+          <Link to="/mes-reservations" onClick={() => { setActiveNav('mes-reservations'); setMobileMenuOpen(false); }} className={mobileClass('mes-reservations')}>Mes Réservations</Link>
           <a href="#footer" onClick={handleContact} className={mobileClass('contact')}>Nous Contacter</a>
           <button
             onClick={() => { onReserve(); setMobileMenuOpen(false); }}

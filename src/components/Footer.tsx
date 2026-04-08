@@ -16,7 +16,7 @@ export const Footer = () => (
           <a href="#" aria-label="Facebook" className="w-8 h-8 rounded-full bg-[#1877F2] hover:bg-[#0d6efd] flex items-center justify-center transition-all hover:scale-110">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
           </a>
-          <a href="https://www.instagram.com/residence_cheliel" aria-label="Instagram" target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110" style={{background: 'radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%)'}}>
+          <a href="https://www.instagram.com/residence_cheliel" aria-label="Instagram" target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110 bg-[radial-gradient(circle_at_30%_107%,_#fdf497_0%,_#fdf497_5%,_#fd5949_45%,_#d6249f_60%,_#285AEB_90%)]">
             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
           </a>
           <a href="https://wa.me/2250779277924" aria-label="WhatsApp" target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-full bg-[#25D366] hover:bg-[#1ebe5d] flex items-center justify-center transition-all hover:scale-110">
@@ -48,6 +48,7 @@ export const Footer = () => (
           <li><a href="#accueil" className="hover:text-white hover:pl-1 transition-all">Accueil</a></li>
           <li><a href="#chambres" className="hover:text-white hover:pl-1 transition-all">Hébergement</a></li>
           <li><Link to="/a-propos" className="hover:text-white hover:pl-1 transition-all">À Propos</Link></li>
+          <li><Link to="/mes-reservations" className="hover:text-white hover:pl-1 transition-all">Mes Réservations</Link></li>
           <li><a href="https://www.booking.com/Share-Ei1HTs" target="_blank" rel="noopener noreferrer" className="hover:text-white hover:pl-1 transition-all">Booking.com</a></li>
         </ul>
       </div>
