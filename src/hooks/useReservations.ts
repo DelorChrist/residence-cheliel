@@ -22,6 +22,22 @@ export interface Reservation {
   createdAt: string;
 }
 
+// Type strict correspondant à la ligne Supabase
+interface ReservationRow {
+  id: string;
+  client_name: string;
+  phone: string;
+  email: string | null;
+  room_id: string;
+  stay_type: StayType;
+  check_in: string;
+  check_out: string;
+  remarks: string | null;
+  payment_method: PaymentMethod;
+  status: ReservationStatus;
+  created_at: string;
+}
+
 export const getNights = (checkIn: string, checkOut: string): number => {
   const diff = new Date(checkOut).getTime() - new Date(checkIn).getTime();
   return Math.max(1, Math.round(diff / (1000 * 60 * 60 * 24)));
@@ -33,32 +49,27 @@ export const getReservationPricing = (unitPrice: number, nights: number) => {
   const discount = safeNights >= LONG_STAY_DISCOUNT_THRESHOLD
     ? Math.round(subtotal * LONG_STAY_DISCOUNT_RATE)
     : 0;
-  return {
-    subtotal,
-    discount,
-    total: subtotal - discount,
-  };
+  return { subtotal, discount, total: subtotal - discount };
 };
 
-// Convertir snake_case Supabase → camelCase
-const fromDB = (r: any): Reservation => ({
+// snake_case → camelCase (typé strictement)
+const fromDB = (r: ReservationRow): Reservation => ({
   id: r.id,
   clientName: r.client_name,
   phone: r.phone,
-  email: r.email,
+  email: r.email ?? undefined,
   roomId: r.room_id,
   stayType: r.stay_type,
   checkIn: r.check_in,
   checkOut: r.check_out,
-  remarks: r.remarks,
+  remarks: r.remarks ?? undefined,
   paymentMethod: r.payment_method,
   status: r.status,
   createdAt: r.created_at,
 });
 
-// Convertir camelCase → snake_case Supabase
-const toDB = (r: Omit<Reservation, 'createdAt'>) => ({
-  id: r.id,
+// camelCase → snake_case (sans id, généré par Supabase)
+const toDB = (r: Omit<Reservation, 'id' | 'createdAt'>) => ({
   client_name: r.clientName,
   phone: r.phone,
   email: r.email || null,
@@ -85,15 +96,8 @@ export const useReservations = () => {
     let channel: ReturnType<typeof supabase.channel> | null = null;
 
     const init = async () => {
-      const canReadReservations = await isAuthenticated();
-      if (!canReadReservations) {
-        setLoading(false);
-        return;
-      }
-
+      if (!(await isAuthenticated())) { setLoading(false); return; }
       await fetchReservations();
-
-      // Écoute en temps réel
       channel = supabase
         .channel('reservations')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
@@ -103,10 +107,7 @@ export const useReservations = () => {
     };
 
     init();
-
-    return () => {
-      if (channel) supabase.removeChannel(channel);
-    };
+    return () => { if (channel) supabase.removeChannel(channel); };
   }, []);
 
   const fetchReservations = async () => {
@@ -119,20 +120,18 @@ export const useReservations = () => {
     if (error) {
       setStorageError(error.message);
     } else if (data) {
-      setReservations(data.map(fromDB));
+      setReservations((data as ReservationRow[]).map(fromDB));
       setStorageError(null);
     }
     setLoading(false);
   };
 
   const addReservation = async (res: Omit<Reservation, 'id' | 'status' | 'createdAt'>) => {
-    const newReservation: Omit<Reservation, 'createdAt'> = {
-      ...res,
-      id: `RES-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
-      status: 'En attente',
-    };
+    const payload = toDB({ ...res, status: 'En attente' });
 
-    const { error } = await supabase.from('reservations').insert(toDB(newReservation));
+    // Utilise une RPC security definer pour contourner la RLS SELECT
+    const { data, error } = await supabase.rpc('insert_reservation', payload);
+
     if (error) {
       console.error('Erreur ajout réservation:', error);
       return { ok: false as const, error: error.message };
@@ -140,7 +139,14 @@ export const useReservations = () => {
 
     if (await isAuthenticated()) await fetchReservations();
 
-    return { ok: true as const, reservation: newReservation };
+    const reservation: Reservation = {
+      ...res,
+      id: (data as string) ?? '—',
+      status: 'En attente',
+      createdAt: new Date().toISOString(),
+    };
+
+    return { ok: true as const, reservation };
   };
 
   const updateStatus = async (id: string, status: ReservationStatus) => {
@@ -148,7 +154,6 @@ export const useReservations = () => {
       .from('reservations')
       .update({ status })
       .eq('id', id);
-
     if (error) console.error('Erreur mise à jour statut:', error);
     else await fetchReservations();
   };
@@ -158,17 +163,9 @@ export const useReservations = () => {
       .from('reservations')
       .delete()
       .eq('id', id);
-
     if (error) console.error('Erreur suppression:', error);
     else await fetchReservations();
   };
 
-  return {
-    reservations,
-    loading,
-    storageError,
-    addReservation,
-    updateStatus,
-    deleteReservation,
-  };
+  return { reservations, loading, storageError, addReservation, updateStatus, deleteReservation };
 };

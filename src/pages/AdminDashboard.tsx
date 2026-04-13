@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { useReservations, Reservation, getNights, getReservationPricing, ReservationStatus } from '../hooks/useReservations';
 import { useRooms } from '../hooks/useRooms';
@@ -6,12 +6,12 @@ import {
   Lock, LayoutDashboard, CalendarDays, DollarSign, Users, Clock,
   LogOut, CheckCircle2, XCircle, Download, LucideIcon, Trash2, Mail,
   Phone, Search, AlertTriangle, Bell, ChevronLeft, ChevronRight,
-  BedDouble, Plus, Pencil, Save, X, Upload, ImageIcon
+  BedDouble, Plus, Pencil, Save, X, Upload, ImageIcon, ClipboardList
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { Session } from '@supabase/supabase-js';
 
-type AdminTab = 'dashboard' | 'reservations' | 'clients' | 'planning' | 'chambres';
+type AdminTab = 'dashboard' | 'reservations' | 'clients' | 'planning' | 'chambres' | 'audit';
 
 const BUCKET = 'room-images';
 
@@ -361,7 +361,12 @@ const PlanningTab = ({ reservations, conflictIds, rooms }: { reservations: Reser
 
   const isOccupied = (roomId: string, day: Date): Reservation | null => {
     const d = day.toISOString().split('T')[0];
-    return activeRes.find(r => r.roomId === roomId && r.checkIn <= d && r.checkOut > d) ?? null;
+    return activeRes.find(r => {
+      // Normalise les dates pour éviter les problèmes de format/timezone
+      const ci = r.checkIn.slice(0, 10);
+      const co = r.checkOut.slice(0, 10);
+      return r.roomId === roomId && ci <= d && co > d;
+    }) ?? null;
   };
 
   const monthLabel = currentMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
@@ -571,32 +576,40 @@ interface RoomRow {
   description: string;
   long_description: string;
   amenities: string[];
+  image_principale: string;
   images: string[];
 }
 
 const emptyRoom = (): Omit<RoomRow, 'id'> => ({
   name: '', price_night: 0, price_day: 0, capacity: '',
-  description: '', long_description: '', amenities: [], images: [],
+  description: '', long_description: '', amenities: [],
+  image_principale: '', images: [],
 });
 
-/** Galerie d'images Supabase Storage avec upload et sélection */
-const ImagePicker = ({ selected, onChange }: { selected: string[]; onChange: (imgs: string[]) => void }) => {
+/** Galerie d'images avec image principale + images complémentaires */
+const ImagePickerWithMain = ({
+  mainImage,
+  extraImages,
+  onChangeMain,
+  onChangeExtra,
+}: {
+  mainImage: string;
+  extraImages: string[];
+  onChangeMain: (url: string) => void;
+  onChangeExtra: (urls: string[]) => void;
+}) => {
   const [gallery, setGallery] = useState<{ id: string; url: string; name: string }[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loadingGallery, setLoadingGallery] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<'main' | 'extra'>('main');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const fetchGallery = useCallback(async () => {
     setLoadingGallery(true);
     const { data, error } = await supabase.from('gallery').select('*').order('created_at', { ascending: false });
-    if (error) {
-      setError("Impossible de charger la galerie d'images.");
-      setGallery([]);
-    } else if (data) {
-      setGallery(data);
-      setError(null);
-    }
+    if (error) { setError("Impossible de charger la galerie."); setGallery([]); }
+    else if (data) { setGallery(data); setError(null); }
     setLoadingGallery(false);
   }, []);
 
@@ -605,70 +618,81 @@ const ImagePicker = ({ selected, onChange }: { selected: string[]; onChange: (im
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
-    setUploading(true);
-    setError(null);
+    setUploading(true); setError(null);
     const uploadErrors: string[] = [];
-    const uploadedUrls: string[] = [];
     for (const file of files) {
       const ext = file.name.split('.').pop();
-      const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
-        upsert: false,
-        cacheControl: '3600',
-        contentType: file.type,
-      });
+      const filePath = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error } = await supabase.storage.from(BUCKET).upload(filePath, file, { upsert: false, cacheControl: '3600', contentType: file.type });
       if (!error) {
-        const { data: { publicUrl } } = supabase.storage.from(BUCKET).getPublicUrl(path);
-        const { error: galleryError } = await supabase.from('gallery').insert({ url: publicUrl, name: file.name });
-        if (galleryError) {
-          uploadErrors.push(`${file.name}: impossible d'enregistrer l'image dans la galerie.`);
-        } else {
-          uploadedUrls.push(publicUrl);
-        }
+        const { data: { publicUrl } } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
+        const { error: ge } = await supabase.from('gallery').insert({ url: publicUrl, name: file.name });
+        if (ge) uploadErrors.push(`${file.name}: erreur galerie`);
       } else {
         uploadErrors.push(`${file.name}: ${error.message}`);
       }
     }
-    if (uploadedUrls.length > 0) {
-      const uniqueUrls = uploadedUrls.filter(url => !selected.includes(url));
-      onChange([...uniqueUrls, ...selected.filter(url => !uniqueUrls.includes(url))]);
-    }
     await fetchGallery();
     setUploading(false);
-    if (uploadErrors.length > 0) setError(uploadErrors.join(' '));
+    if (uploadErrors.length) setError(uploadErrors.join(' '));
     if (inputRef.current) inputRef.current.value = '';
   };
 
   const handleDeleteFromGallery = async (id: string, url: string) => {
-    // Extraire le path depuis l'URL publique
     const path = url.split(`/${BUCKET}/`)[1];
     if (path) await supabase.storage.from(BUCKET).remove([path]);
     await supabase.from('gallery').delete().eq('id', id);
-    onChange(selected.filter(s => s !== url));
+    if (mainImage === url) onChangeMain('');
+    onChangeExtra(extraImages.filter(u => u !== url));
     await fetchGallery();
   };
 
-  const toggle = (url: string) => {
-    onChange(selected.includes(url) ? selected.filter(s => s !== url) : [...selected, url]);
+  const handleSelect = (url: string) => {
+    if (mode === 'main') {
+      onChangeMain(url);
+    } else {
+      if (extraImages.includes(url)) {
+        onChangeExtra(extraImages.filter(u => u !== url));
+      } else {
+        onChangeExtra([...extraImages, url]);
+      }
+    }
   };
 
+  const isSelected = (url: string) => mode === 'main' ? mainImage === url : extraImages.includes(url);
+
   return (
-    <div>
+    <div className="space-y-4">
+      {/* Onglets mode sélection */}
+      <div className="flex gap-2">
+        <button type="button" onClick={() => setMode('main')}
+          className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${mode === 'main' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+          Image principale
+        </button>
+        <button type="button" onClick={() => setMode('extra')}
+          className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${mode === 'extra' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+          Images complémentaires ({extraImages.length})
+        </button>
+      </div>
+
+      <p className="text-xs text-gray-500">
+        {mode === 'main'
+          ? 'Cliquez sur une image pour la définir comme image principale (affichée en premier).'
+          : 'Cliquez sur les images pour les ajouter/retirer des images complémentaires.'}
+      </p>
+
       {/* Upload */}
-      <div
-        className="border-2 border-dashed border-gray-200 rounded-2xl p-5 text-center hover:border-primary-400 transition-colors cursor-pointer mb-4"
-        onClick={() => inputRef.current?.click()}
-      >
+      <div className="border-2 border-dashed border-gray-200 rounded-2xl p-4 text-center hover:border-primary-400 transition-colors cursor-pointer"
+        onClick={() => inputRef.current?.click()}>
         <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleUpload} aria-label="Uploader des images" />
         {uploading ? (
           <div className="flex items-center justify-center gap-2 text-primary-600 text-sm">
-            <div className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
-            Upload en cours...
+            <div className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" /> Upload en cours...
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-2 text-gray-400">
-            <Upload size={22} />
-            <span className="text-sm font-medium">Cliquez pour uploader des images</span>
+          <div className="flex flex-col items-center gap-1 text-gray-400">
+            <Upload size={20} />
+            <span className="text-sm font-medium">Uploader des images</span>
             <span className="text-xs">JPG, PNG, WEBP</span>
           </div>
         )}
@@ -683,27 +707,31 @@ const ImagePicker = ({ selected, onChange }: { selected: string[]; onChange: (im
           Aucune image. Uploadez-en pour commencer.
         </div>
       ) : (
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-64 overflow-y-auto pr-1">
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-56 overflow-y-auto pr-1">
           {gallery.map(img => {
-            const isSelected = selected.includes(img.url);
+            const sel = isSelected(img.url);
+            const isMain = mainImage === img.url;
             return (
-              <div key={img.id} className={`relative group aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all ${isSelected ? 'border-primary-500' : 'border-transparent'}`}
-                onClick={() => toggle(img.url)}
+              <div key={img.id}
+                className={`relative group aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all ${
+                  isMain ? 'border-yellow-400' : sel ? 'border-primary-500' : 'border-transparent'
+                }`}
+                onClick={() => handleSelect(img.url)}
               >
                 <img src={img.url} alt={img.name} className="w-full h-full object-cover" loading="lazy" />
-                {/* Overlay sélection */}
-                {isSelected && (
-                  <div className="absolute inset-0 bg-primary-600/30 flex items-center justify-center">
-                    <CheckCircle2 size={22} className="text-white drop-shadow" />
+                {isMain && (
+                  <div className="absolute inset-0 bg-yellow-400/20 flex items-center justify-center">
+                    <span className="bg-yellow-400 text-yellow-900 text-[10px] font-bold px-1.5 py-0.5 rounded-full">PRINCIPALE</span>
                   </div>
                 )}
-                {/* Bouton supprimer */}
-                <button
-                  type="button"
-                  aria-label="Supprimer de la galerie"
+                {sel && !isMain && (
+                  <div className="absolute inset-0 bg-primary-600/20 flex items-center justify-center">
+                    <CheckCircle2 size={20} className="text-white drop-shadow" />
+                  </div>
+                )}
+                <button type="button" aria-label="Supprimer de la galerie"
                   onClick={e => { e.stopPropagation(); handleDeleteFromGallery(img.id, img.url); }}
-                  className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow"
-                >
+                  className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow">
                   <X size={12} />
                 </button>
               </div>
@@ -712,30 +740,41 @@ const ImagePicker = ({ selected, onChange }: { selected: string[]; onChange: (im
         </div>
       )}
 
-      {error && (
-        <p className="mt-3 text-sm text-red-600 leading-relaxed">
-          {error}
-        </p>
-      )}
+      {error && <p className="text-sm text-red-600">{error}</p>}
 
-      {/* Images sélectionnées (ordre) */}
-      {selected.length > 0 && (
-        <div className="mt-3">
-          <p className="text-xs text-gray-500 mb-2 font-medium">{selected.length} image{selected.length > 1 ? 's' : ''} sélectionnée{selected.length > 1 ? 's' : ''} (ordre d'affichage)</p>
-          <div className="flex gap-2 flex-wrap">
-            {selected.map((url, i) => (
-              <div key={url} className="relative w-14 h-14 rounded-xl overflow-hidden border-2 border-primary-300 shrink-0">
-                <img src={url} alt={`Image ${i + 1}`} className="w-full h-full object-cover" />
-                <span className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] text-center">{i + 1}</span>
-              </div>
-            ))}
+      {/* Résumé sélection */}
+      <div className="space-y-2">
+        {mainImage && (
+          <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-100 rounded-xl px-3 py-2">
+            <img src={mainImage} alt="principale" className="w-10 h-10 rounded-lg object-cover shrink-0 border border-yellow-200" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-yellow-800">Image principale</p>
+              <p className="text-xs text-yellow-600 truncate">{mainImage.split('/').pop()}</p>
+            </div>
+            <button type="button" aria-label="Retirer l'image principale" onClick={() => onChangeMain('')} className="text-yellow-500 hover:text-red-500 shrink-0"><X size={14} /></button>
           </div>
-        </div>
-      )}
+        )}
+        {extraImages.length > 0 && (
+          <div className="bg-primary-50 border border-primary-100 rounded-xl px-3 py-2">
+            <p className="text-xs font-semibold text-primary-800 mb-2">{extraImages.length} image{extraImages.length > 1 ? 's' : ''} complémentaire{extraImages.length > 1 ? 's' : ''}</p>
+            <div className="flex gap-1.5 flex-wrap">
+              {extraImages.map((url, i) => (
+                <div key={url} className="relative w-10 h-10 rounded-lg overflow-hidden border border-primary-200 shrink-0 group">
+                  <img src={url} alt={`extra ${i + 1}`} className="w-full h-full object-cover" />
+                  <button type="button" aria-label="Retirer cette image"
+                    onClick={() => onChangeExtra(extraImages.filter(u => u !== url))}
+                    className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <X size={12} className="text-white" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
-
 const ChambresTab = () => {
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -758,7 +797,7 @@ const ChambresTab = () => {
   const openEdit = (room: RoomRow) => {
     setEditing(room);
     setIsNew(false);
-    setForm({ name: room.name, price_night: room.price_night, price_day: room.price_day, capacity: room.capacity, description: room.description, long_description: room.long_description, amenities: [...room.amenities], images: [...room.images] });
+    setForm({ name: room.name, price_night: room.price_night, price_day: room.price_day, capacity: room.capacity, description: room.description, long_description: room.long_description, amenities: [...room.amenities], image_principale: room.image_principale, images: [...room.images] });
   };
 
   const openNew = () => {
@@ -870,7 +909,12 @@ const ChambresTab = () => {
               {/* Images */}
               <div>
                 <label className="text-sm font-semibold text-gray-700 mb-1.5 block">Images</label>
-                <ImagePicker selected={form.images} onChange={imgs => setForm(f => ({ ...f, images: imgs }))} />
+                <ImagePickerWithMain
+                  mainImage={form.image_principale}
+                  extraImages={form.images}
+                  onChangeMain={url => setForm(f => ({ ...f, image_principale: url }))}
+                  onChangeExtra={imgs => setForm(f => ({ ...f, images: imgs }))}
+                />
               </div>
             </div>
             <div className="sticky bottom-0 bg-white border-t border-gray-100 px-6 py-4 flex gap-3">
@@ -899,9 +943,9 @@ const ChambresTab = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {rooms.map(room => (
             <div key={room.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-              {room.images[0] && (
+              {(room.image_principale || room.images[0]) && (
                 <div className="aspect-[16/9] overflow-hidden">
-                  <img src={room.images[0]} alt={room.name} className="w-full h-full object-cover" loading="lazy" />
+                  <img src={room.image_principale || room.images[0]} alt={room.name} className="w-full h-full object-cover" loading="lazy" />
                 </div>
               )}
               <div className="p-5">
@@ -937,6 +981,108 @@ const ChambresTab = () => {
   );
 };
 
+// ─── Vue Audit Log ────────────────────────────────────────────────────────
+interface AuditEntry {
+  id: number;
+  user_id: string | null;
+  action: string;
+  table_name: string;
+  record_id: string;
+  old_data: Record<string, unknown> | null;
+  new_data: Record<string, unknown> | null;
+  created_at: string;
+}
+
+const AuditTab = () => {
+  const [logs, setLogs] = useState<AuditEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    supabase
+      .from('audit_log')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100)
+      .then(({ data }) => {
+        if (data) setLogs(data as AuditEntry[]);
+        setLoading(false);
+      });
+  }, []);
+
+  const actionColor = (action: string) => {
+    if (action === 'INSERT') return 'bg-green-100 text-green-800';
+    if (action === 'UPDATE') return 'bg-blue-100 text-blue-800';
+    if (action === 'DELETE') return 'bg-red-100 text-red-800';
+    return 'bg-gray-100 text-gray-800';
+  };
+
+  const actionLabel = (action: string) => {
+    if (action === 'INSERT') return 'Création';
+    if (action === 'UPDATE') return 'Modification';
+    if (action === 'DELETE') return 'Suppression';
+    return action;
+  };
+
+  return (
+    <div>
+      <div className="mb-8">
+        <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Journal d'audit</h1>
+        <p className="text-gray-500">Historique des 100 dernières actions sur les réservations.</p>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" /></div>
+      ) : logs.length === 0 ? (
+        <div className="text-center py-16 text-gray-400">
+          <ClipboardList size={40} className="mx-auto mb-3 opacity-30" />
+          <p>Aucune action enregistrée.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                  <th className="px-6 py-4 font-medium">Date</th>
+                  <th className="px-6 py-4 font-medium">Action</th>
+                  <th className="px-6 py-4 font-medium">Réservation</th>
+                  <th className="px-6 py-4 font-medium">Détails</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {logs.map(log => (
+                  <tr key={log.id} className="hover:bg-gray-50/50">
+                    <td className="px-6 py-4 text-sm text-gray-500 whitespace-nowrap">
+                      {new Date(log.created_at).toLocaleString('fr-FR')}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${actionColor(log.action)}`}>
+                        {actionLabel(log.action)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm font-mono text-gray-700">{log.record_id}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {log.action === 'UPDATE' && log.old_data && log.new_data && (
+                        <span>
+                          Statut : <span className="text-gray-700 font-medium">{String(log.old_data.status ?? '—')}</span>
+                          {' → '}
+                          <span className="text-gray-700 font-medium">{String(log.new_data.status ?? '—')}</span>
+                        </span>
+                      )}
+                      {log.action === 'INSERT' && <span className="text-green-700">Nouvelle réservation</span>}
+                      {log.action === 'DELETE' && <span className="text-red-700">Réservation supprimée</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── 3. Dashboard principal avec notifications temps réel ─────────────────
 const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: () => void }) => {
   const { reservations, storageError, updateStatus, deleteReservation } = useReservations();
@@ -951,8 +1097,8 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
   const [notifications, setNotifications] = useState<{ id: string; message: string }[]>([]);
   const prevCountRef = useRef<number | null>(null);
 
-  // Détection des conflits
-  const conflictIds = getConflictIds(reservations);
+  // Détection des conflits — mémoïsé pour éviter O(n²) à chaque render
+  const conflictIds = useMemo(() => getConflictIds(reservations), [reservations]);
 
   // Notifications temps réel : nouvelle réservation
   useEffect(() => {
@@ -973,6 +1119,7 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
     { id: 'planning', label: 'Planning', icon: CalendarDays },
     { id: 'clients', label: 'Clients', icon: Users },
     { id: 'chambres', label: 'Appartements', icon: BedDouble },
+    { id: 'audit', label: 'Journal d\'audit', icon: ClipboardList },
   ];
 
   return (
@@ -1044,6 +1191,7 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
         {activeTab === 'planning' && <PlanningTab reservations={reservations} conflictIds={conflictIds} rooms={rooms} />}
         {activeTab === 'clients' && <ClientsTab reservations={reservations} rooms={rooms} />}
         {activeTab === 'chambres' && <ChambresTab />}
+        {activeTab === 'audit' && <AuditTab />}
       </main>
     </div>
   );

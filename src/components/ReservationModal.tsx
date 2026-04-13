@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { X, CheckCircle2, ChevronRight, ChevronLeft, User, CalendarDays, CreditCard, Sun, Moon } from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import { Turnstile } from '@marsidev/react-turnstile';
 import { supabase } from '../lib/supabase';
 import { useRooms } from '../hooks/useRooms';
 import { useReservations, PaymentMethod, StayType } from '../hooks/useReservations';
 import { getNights, getReservationPricing, LONG_STAY_DISCOUNT_THRESHOLD } from '../hooks/useReservations';
+
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string;
 
 const normalizeCustomerPhone = (phone: string) => {
   const cleaned = phone.replace(/[\s().-]/g, '');
@@ -100,8 +103,6 @@ const downloadReceiptPdf = (data: {
   doc.save(`recu-${data.reservationNumber.toLowerCase()}.pdf`);
 };
 
-const today = new Date().toISOString().split('T')[0];
-
 interface Props {
   onClose: () => void;
   initialRoomId: string | null;
@@ -114,13 +115,16 @@ const STEPS = [
 ];
 
 export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
+  const today = new Date().toISOString().split('T')[0];
   const { addReservation } = useReservations();
   const { rooms } = useRooms();
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
   const [alternativeRoomIds, setAlternativeRoomIds] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [reservationNumber, setReservationNumber] = useState<string | null>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     clientName: '',
     phone: '',
@@ -197,6 +201,12 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
   const canNext2 = Boolean(formData.clientName.trim() && formData.phone.trim() && isValidEmail(formData.email));
 
   const handleSubmit = async () => {
+    if (submitting) return;
+    if (!captchaToken) {
+      setSubmitError('Veuillez valider le CAPTCHA avant de confirmer.');
+      return;
+    }
+    setSubmitting(true);
     setSubmitError(null);
     setReservationNumber(null);
 
@@ -250,7 +260,7 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
     }
 
     setReservationNumber(result.reservation.id);
-
+    setSubmitting(false);
     setStep(4);
   };
 
@@ -488,12 +498,30 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                     Suivant <ChevronRight size={18} />
                   </button>
                 ) : (
-                  <button
-                    onClick={handleSubmit}
-                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-medium transition-all shadow-md hover:scale-105 transform"
-                  >
-                    Confirmer <CheckCircle2 size={18} />
-                  </button>
+                  <div className="flex flex-col items-end gap-3 w-full">
+                    {/* CAPTCHA Turnstile */}
+                    {TURNSTILE_SITE_KEY ? (
+                      <>
+                        <Turnstile
+                          siteKey={TURNSTILE_SITE_KEY}
+                          onSuccess={token => setCaptchaToken(token)}
+                          onExpire={() => setCaptchaToken(null)}
+                          onError={() => setCaptchaToken(null)}
+                          options={{ theme: 'light', language: 'fr' }}
+                        />
+                        {!captchaToken && (
+                          <p className="text-xs text-gray-400 text-right">Validez le CAPTCHA pour continuer</p>
+                        )}
+                      </>
+                    ) : null}
+                    <button
+                      onClick={handleSubmit}
+                      disabled={submitting || (!!TURNSTILE_SITE_KEY && !captchaToken)}
+                      className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-medium transition-all shadow-md hover:scale-105 transform disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                    >
+                      {submitting ? 'Envoi...' : <><span>Confirmer</span><CheckCircle2 size={18} /></>}
+                    </button>
+                  </div>
                 )}
               </div>
             </div>

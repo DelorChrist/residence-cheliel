@@ -58,7 +58,7 @@ export const ChambresPage = () => {
                 {/* Image cliquable */}
                 <Link to={`/chambres/${room.id}`} className="block relative aspect-[16/10] overflow-hidden">
                   <img
-                    src={room.images[0]}
+                    src={room.imagePrincipale || room.images[0] || ''}
                     alt={room.name}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                     loading="lazy"

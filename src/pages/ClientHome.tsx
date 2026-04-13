@@ -121,7 +121,7 @@ export const ClientHome = () => {
                 <p className="text-primary-600 font-medium tracking-widest uppercase text-sm mb-3">Notre Histoire</p>
                 <h2 className="text-3xl md:text-4xl font-heading font-bold text-gray-900 mb-6">Un cadre d'exception à Yamoussoukro</h2>
                 <p className="text-gray-600 text-lg leading-loose mb-5">
-                  Nichée à Morofé, à 100m du foyer des jeunes, la Résidence Cheliel est bien plus qu'un simple hébergement. C'est une expérience de vie alliant le luxe discret à la chaleur de l'hospitalité ivoirienne.
+                  Nichée à Morofé, à 100m du foyer des jeunes, les Résidences Cheliel sont bien plus qu'un simple hébergement. C'est une expérience de vie alliant le luxe discret à la chaleur de l'hospitalité ivoirienne.
                 </p>
                 <p className="text-gray-600 text-lg leading-loose mb-10">
                   Profitez de notre piscine, de notre bar lounge et de nos espaces communs soigneusement aménagés pour faire de votre séjour un moment inoubliable.
@@ -191,7 +191,7 @@ export const ClientHome = () => {
 };
 
 const RoomSection = ({ room, reversed, onReserve }: { room: Room, reversed: boolean, onReserve: () => void }) => {
-  const [activeImage, setActiveImage] = useState(room.images[0]);
+  const [activeImage, setActiveImage] = useState(room.imagePrincipale || room.images[0] || '');
 
   return (
     <div className={`flex flex-col ${reversed ? 'lg:flex-row-reverse' : 'lg:flex-row'} gap-12 items-center`}>

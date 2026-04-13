@@ -8,6 +8,7 @@ export interface Room {
   description: string;
   longDescription: string;
   amenities: string[];
+  imagePrincipale: string;
   images: string[];
 }
 

@@ -24,8 +24,14 @@ export const ChambreDetail = () => {
 
   if (!room) return <Navigate to="/chambres" replace />;
 
-  const prev = () => setActiveIndex(i => (i === 0 ? room.images.length - 1 : i - 1));
-  const next = () => setActiveIndex(i => (i === room.images.length - 1 ? 0 : i + 1));
+  // Image principale en premier, puis les complémentaires
+  const allImages = [
+    ...(room.imagePrincipale ? [room.imagePrincipale] : []),
+    ...room.images.filter(img => img !== room.imagePrincipale),
+  ];
+
+  const prev = () => setActiveIndex(i => (i === 0 ? allImages.length - 1 : i - 1));
+  const next = () => setActiveIndex(i => (i === allImages.length - 1 ? 0 : i + 1));
 
   return (
     <div className="min-h-screen bg-[#faf9f8] font-sans text-[#333]">
@@ -42,7 +48,7 @@ export const ChambreDetail = () => {
           <div className="flex flex-col gap-4">
             <div className="relative aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl">
               <img
-                src={room.images[activeIndex]}
+                src={allImages[activeIndex]}
                 alt={room.name}
                 className="w-full h-full object-cover transition-all duration-500"
                 loading="lazy"
@@ -56,7 +62,7 @@ export const ChambreDetail = () => {
                 {room.count} disponibles
               </div>
               {/* Navigation flèches */}
-              {room.images.length > 1 && (
+              {allImages.length > 1 && (
                 <>
                   <button onClick={prev} aria-label="Image précédente" className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-white/80 hover:bg-white rounded-full flex items-center justify-center shadow-md transition-colors">
                     <ChevronLeft size={20} className="text-gray-700" />
@@ -70,7 +76,7 @@ export const ChambreDetail = () => {
 
             {/* Thumbnails */}
             <div className="flex gap-3">
-              {room.images.map((img, i) => (
+              {allImages.map((img, i) => (
                 <button
                   key={i}
                   onClick={() => setActiveIndex(i)}
