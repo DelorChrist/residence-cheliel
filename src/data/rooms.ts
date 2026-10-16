@@ -12,7 +12,7 @@ export interface Room {
   images: string[];
 }
 
-// Données statiques vides — toutes les chambres sont gérées depuis l'admin Supabase
+// Données statiques vides — toutes les chambres sont gérées depuis l'espace admin
 export const rooms: Room[] = [];
 
 export const RESIDENCE_INFO = {

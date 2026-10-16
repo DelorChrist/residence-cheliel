@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { useReservations, Reservation, getNights, getReservationPricing, ReservationStatus } from '../hooks/useReservations';
 import { useRooms } from '../hooks/useRooms';
+import { useNotifications } from '../hooks/useNotifications';
+import { NotificationCenter, NotificationToasts } from '../components/NotificationCenter';
 import {
   Lock, LayoutDashboard, CalendarDays, DollarSign, Users, Clock,
   LogOut, CheckCircle2, XCircle, Download, LucideIcon, Trash2, Mail,
-  Phone, Search, AlertTriangle, Bell, ChevronLeft, ChevronRight,
-  BedDouble, Plus, Pencil, Save, X, Upload, ImageIcon, ClipboardList
+  Phone, Search, AlertTriangle, ChevronLeft, ChevronRight,
+  BedDouble, Plus, Pencil, Save, X, Upload, ImageIcon, ClipboardList,
+  MessageSquare, Eye, EyeOff
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import type { Session } from '@supabase/supabase-js';
+type Session = { access_token: string; user: { id: number; email: string } };
 
 type AdminTab = 'dashboard' | 'reservations' | 'clients' | 'planning' | 'chambres' | 'audit';
 
@@ -24,6 +27,48 @@ type DashboardRoom = {
 
 // ─── Utilitaires ───────────────────────────────────────────────────────────
 
+const formatPhone = (phone?: string | null): string => {
+  if (!phone) return '—';
+  const raw = phone.trim();
+  const cleaned = raw.replace(/[\s\-\.\(\)]/g, '');
+
+  // Format international +225 avec 9 chiffres (ex: +225757180205 -> +225 07 57 18 02 05)
+  if (/^\+225\d{9}$/.test(cleaned)) {
+    const num = cleaned.slice(4);
+    return `+225 0${num.slice(0, 1)} ${num.slice(1, 3)} ${num.slice(3, 5)} ${num.slice(5, 7)} ${num.slice(7)}`;
+  }
+
+  // Format international 225 avec 9 chiffres (ex: 225757180205 -> +225 07 57 18 02 05)
+  if (/^225\d{9}$/.test(cleaned)) {
+    const num = cleaned.slice(3);
+    return `+225 0${num.slice(0, 1)} ${num.slice(1, 3)} ${num.slice(3, 5)} ${num.slice(5, 7)} ${num.slice(7)}`;
+  }
+
+  // Format international +225 avec 10 chiffres (ex: +2250757180205 -> +225 07 57 18 02 05)
+  if (/^\+225\d{10}$/.test(cleaned)) {
+    const num = cleaned.slice(4);
+    return `+225 ${num.slice(0, 2)} ${num.slice(2, 4)} ${num.slice(4, 6)} ${num.slice(6, 8)} ${num.slice(8)}`;
+  }
+
+  // Format international 225 avec 10 chiffres (ex: 2250757180205 -> +225 07 57 18 02 05)
+  if (/^225\d{10}$/.test(cleaned)) {
+    const num = cleaned.slice(3);
+    return `+225 ${num.slice(0, 2)} ${num.slice(2, 4)} ${num.slice(4, 6)} ${num.slice(6, 8)} ${num.slice(8)}`;
+  }
+
+  // Format local 10 chiffres (ex: 0757180205 -> +225 07 57 18 02 05)
+  if (/^0\d{9}$/.test(cleaned)) {
+    return `+225 ${cleaned.slice(0, 2)} ${cleaned.slice(2, 4)} ${cleaned.slice(4, 6)} ${cleaned.slice(6, 8)} ${cleaned.slice(8)}`;
+  }
+
+  // Format local 8 chiffres (ancien format -> +225 XX XX XX XX)
+  if (/^\d{8}$/.test(cleaned)) {
+    return `+225 ${cleaned.slice(0, 2)} ${cleaned.slice(2, 4)} ${cleaned.slice(4, 6)} ${cleaned.slice(6)}`;
+  }
+
+  return raw.startsWith('+') ? raw : `+${raw}`;
+};
+
 const sanitizeCSVField = (value: string | number): string => {
   const str = String(value);
   return /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
@@ -31,13 +76,14 @@ const sanitizeCSVField = (value: string | number): string => {
 
 const exportCSV = (reservations: Reservation[], rooms: DashboardRoom[]) => {
   if (reservations.length === 0) { alert('Aucune réservation à exporter.'); return; }
-  const headers = ['ID', 'Client', 'Téléphone', 'Email', 'Chambre', 'Type', 'Arrivée', 'Départ', 'Durée', 'Paiement', 'Statut', 'Créé le'];
+  const headers = ['ID', 'Client', 'Téléphone', 'Email', 'Chambre', 'Type', 'Arrivée', 'Départ', 'Durée', 'Demandes spéciales', 'Paiement', 'Statut', 'Créé le'];
   const rows = reservations.map(r => {
     const room = rooms.find(rm => rm.id === r.roomId);
     const nights = getNights(r.checkIn, r.checkOut);
     return [
       r.id, r.clientName, r.phone, r.email ?? '',
       room?.name ?? r.roomId, r.stayType, r.checkIn, r.checkOut, nights,
+      r.remarks ?? '',
       r.paymentMethod, r.status,
       new Date(r.createdAt).toLocaleDateString('fr-FR')
     ].map(sanitizeCSVField).join(';');
@@ -73,12 +119,251 @@ const getConflictIds = (reservations: Reservation[]): Set<string> => {
   return ids;
 };
 
+// ─── Composant de Recherche Globale Admin ──────────────────────────────────
+const AdminGlobalSearch = ({
+  reservations,
+  rooms,
+  onNavigateTab,
+}: {
+  reservations: Reservation[];
+  rooms: DashboardRoom[];
+  onNavigateTab: (tab: AdminTab) => void;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => inputRef.current?.focus(), 60);
+    }
+  }, [isOpen]);
+
+  const q = query.trim().toLowerCase();
+
+  const resResults = useMemo(() => {
+    if (!q) return [];
+    return reservations.filter(r => {
+      const room = rooms.find(rm => rm.id === r.roomId);
+      return (
+        r.clientName.toLowerCase().includes(q) ||
+        r.phone.includes(q) ||
+        r.id.toLowerCase().includes(q) ||
+        (r.email?.toLowerCase().includes(q) ?? false) ||
+        (r.remarks?.toLowerCase().includes(q) ?? false) ||
+        (room?.name.toLowerCase().includes(q) ?? false)
+      );
+    }).slice(0, 5);
+  }, [q, reservations, rooms]);
+
+  const clientResults = useMemo(() => {
+    if (!q) return [];
+    const clientMap = new Map<string, { name: string; phone: string; count: number }>();
+    for (const r of reservations) {
+      const existing = clientMap.get(r.phone);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        clientMap.set(r.phone, { name: r.clientName, phone: r.phone, count: 1 });
+      }
+    }
+    return Array.from(clientMap.values()).filter(c =>
+      c.name.toLowerCase().includes(q) || c.phone.includes(q)
+    ).slice(0, 4);
+  }, [q, reservations]);
+
+  const roomResults = useMemo(() => {
+    if (!q) return [];
+    return rooms.filter(rm => rm.name.toLowerCase().includes(q)).slice(0, 3);
+  }, [q, rooms]);
+
+  const totalResults = resResults.length + clientResults.length + roomResults.length;
+
+  return (
+    <div ref={containerRef} className="relative">
+      {!isOpen ? (
+        <button
+          type="button"
+          onClick={() => setIsOpen(true)}
+          aria-label="Rechercher"
+          className="p-2.5 rounded-xl border border-gray-100 bg-white text-gray-500 hover:text-primary-700 hover:bg-primary-50/50 hover:border-gray-200 shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-all flex items-center justify-center cursor-pointer"
+          title="Rechercher"
+        >
+          <Search size={18} />
+        </button>
+      ) : (
+        <div className="relative flex items-center bg-white border border-primary-200 ring-2 ring-primary-500/10 rounded-xl px-3.5 py-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.04)] w-72 sm:w-80 md:w-96 transition-all duration-300 ease-out animate-in fade-in zoom-in-95">
+          <Search size={16} className="text-primary-600 mr-2 shrink-0" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Rechercher réservation, client, chambre..."
+            className="w-full bg-transparent text-sm text-gray-800 outline-none placeholder-gray-400"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 mr-1 transition-colors"
+            >
+              <X size={14} />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => { setIsOpen(false); setQuery(''); }}
+            className="text-xs text-gray-500 hover:text-gray-800 px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 font-medium transition-colors shrink-0"
+          >
+            Fermer
+          </button>
+        </div>
+      )}
+
+      {/* Dropdown des résultats */}
+      {isOpen && q.length > 0 && (
+        <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-[0_10px_25px_rgba(0,0,0,0.06)] border border-gray-100 overflow-hidden max-h-[420px] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden z-50 divide-y divide-gray-100 transition-all duration-200 ease-out animate-in fade-in slide-in-from-top-2">
+          {resResults.length > 0 && (
+            <div className="p-2">
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1">
+                Réservations ({resResults.length})
+              </p>
+              {resResults.map(r => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => {
+                    onNavigateTab('reservations');
+                    setIsOpen(false);
+                    setQuery('');
+                  }}
+                  className="w-full text-left p-2.5 rounded-xl hover:bg-primary-50 transition-colors flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="min-w-0 pr-2">
+                    <div className="font-semibold text-xs text-gray-900 group-hover:text-primary-700 truncate">
+                      {r.clientName}
+                    </div>
+                    <div className="text-[11px] text-gray-500 truncate">
+                      {rooms.find(rm => rm.id === r.roomId)?.name || 'Chambre'} · {new Date(r.checkIn).toLocaleDateString('fr-FR')}
+                    </div>
+                  </div>
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${
+                      r.status === 'Confirmé'
+                        ? 'bg-green-100 text-green-700'
+                        : r.status === 'En attente'
+                        ? 'bg-yellow-100 text-yellow-700'
+                        : 'bg-red-100 text-red-700'
+                    }`}
+                  >
+                    {r.status}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {clientResults.length > 0 && (
+            <div className="p-2">
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1">
+                Clients ({clientResults.length})
+              </p>
+              {clientResults.map(c => (
+                <button
+                  key={c.phone}
+                  type="button"
+                  onClick={() => {
+                    onNavigateTab('clients');
+                    setIsOpen(false);
+                    setQuery('');
+                  }}
+                  className="w-full text-left p-2.5 rounded-xl hover:bg-primary-50 transition-colors flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="min-w-0 pr-2">
+                    <div className="font-semibold text-xs text-gray-900 group-hover:text-primary-700 truncate">
+                      {c.name}
+                    </div>
+                    <div className="text-[11px] text-gray-500 truncate">{c.phone}</div>
+                  </div>
+                  <span className="text-[10px] text-primary-700 bg-primary-50 px-2 py-0.5 rounded-full shrink-0">
+                    {c.count} séjour{c.count > 1 ? 's' : ''}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {roomResults.length > 0 && (
+            <div className="p-2">
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1">
+                Appartements ({roomResults.length})
+              </p>
+              {roomResults.map(rm => (
+                <button
+                  key={rm.id}
+                  type="button"
+                  onClick={() => {
+                    onNavigateTab('chambres');
+                    setIsOpen(false);
+                    setQuery('');
+                  }}
+                  className="w-full text-left p-2.5 rounded-xl hover:bg-primary-50 transition-colors flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="font-semibold text-xs text-gray-900 group-hover:text-primary-700 truncate">
+                    {rm.name}
+                  </div>
+                  <span className="text-[11px] font-bold text-primary-600 shrink-0">
+                    {rm.price_night.toLocaleString()} F
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {totalResults === 0 && (
+            <div className="p-6 text-center text-xs text-gray-400">
+              Aucun résultat pour « {query} »
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── 1. Vue Tableau de Bord ────────────────────────────────────────────────
-const OverviewTab = ({ reservations, conflictIds, rooms, onTabChange }: {
+const OverviewTab = ({ reservations, conflictIds, rooms, onTabChange, headerActions }: {
   reservations: Reservation[];
   conflictIds: Set<string>;
   rooms: DashboardRoom[];
   onTabChange: (tab: AdminTab) => void;
+  headerActions?: React.ReactNode;
 }) => {
   const totalReservations = reservations.length;
   const pendingReservations = reservations.filter(r => r.status === 'En attente').length;
@@ -106,9 +391,14 @@ const OverviewTab = ({ reservations, conflictIds, rooms, onTabChange }: {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Vue d'ensemble</h1>
-        <p className="text-gray-500">Bienvenue dans votre espace de gestion.</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <div>
+          <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Vue d'ensemble</h1>
+          <p className="text-gray-500">Bienvenue dans votre espace de gestion.</p>
+        </div>
+        <div className="hidden md:flex items-center gap-3">
+          {headerActions}
+        </div>
       </div>
 
       {/* Alerte conflits */}
@@ -120,9 +410,9 @@ const OverviewTab = ({ reservations, conflictIds, rooms, onTabChange }: {
         </button>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-6">
         <StatCard title="Réservations" value={totalReservations.toString()} icon={CalendarDays} color="blue" />
-        <StatCard title="Revenus confirmés" value={`${revenue.toLocaleString()} F`} icon={DollarSign} color="green" />
+        <StatCard title="Revenus confirmés" value={`${revenue.toLocaleString('fr-FR')} FCFA`} icon={DollarSign} color="green" />
         <StatCard title="Taux d'occupation" value={`${occupancyRate}%`} icon={Users} color="purple" />
         <StatCard title="En attente" value={pendingReservations.toString()} icon={Clock} color="orange" />
       </div>
@@ -138,7 +428,7 @@ const OverviewTab = ({ reservations, conflictIds, rooms, onTabChange }: {
         </div>
       )}
 
-      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_2px_rgba(0,0,0,0.03)] overflow-hidden">
         <div className="p-6 border-b border-gray-100">
           <h2 className="text-lg font-heading font-bold text-gray-900">Dernières réservations</h2>
         </div>
@@ -163,6 +453,12 @@ const OverviewTab = ({ reservations, conflictIds, rooms, onTabChange }: {
                         {res.clientName}
                         {isConflict && <AlertTriangle size={13} className="text-red-500" />}
                       </div>
+                      {res.remarks && (
+                        <div className="mt-1 flex items-start gap-1 text-[11px] text-amber-800 bg-amber-50 border border-amber-200/60 px-2 py-0.5 rounded max-w-[220px]" title={res.remarks}>
+                          <MessageSquare size={11} className="text-amber-600 shrink-0 mt-0.5" />
+                          <span className="truncate">{res.remarks}</span>
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-3 text-gray-500 text-sm">{room?.name || 'Inconnue'}</td>
                     <td className="px-6 py-3 text-gray-500 text-sm">{new Date(res.checkIn).toLocaleDateString('fr-FR')}</td>
@@ -187,16 +483,62 @@ const OverviewTab = ({ reservations, conflictIds, rooms, onTabChange }: {
 };
 
 // ─── Vue Réservations (avec conflits) ─────────────────────────────────────
-const ReservationsTab = ({ reservations, conflictIds, rooms, updateStatus, deleteReservation }: {
+const ReservationsTab = ({ reservations, conflictIds, rooms, updateStatus, deleteReservation, headerActions }: {
   reservations: Reservation[];
   conflictIds: Set<string>;
   rooms: DashboardRoom[];
   updateStatus: (id: string, status: ReservationStatus) => void;
   deleteReservation: (id: string) => void;
+  headerActions?: React.ReactNode;
 }) => {
   const [statusFilter, setStatusFilter] = useState<ReservationStatus | 'Tous' | 'Conflits'>('Tous');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [conflictBlockData, setConflictBlockData] = useState<{ target: Reservation; conflicting: Reservation[] } | null>(null);
   const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    if (deleteConfirmId || conflictBlockData) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [deleteConfirmId, conflictBlockData]);
+
+  const handleConfirmReservation = (res: Reservation) => {
+    // Vérifie s'il existe déjà une réservation CONFIRMÉE sur la même chambre qui chevauche les dates
+    const overlapping = reservations.filter(other =>
+      other.id !== res.id &&
+      other.roomId === res.roomId &&
+      other.status === 'Confirmé' &&
+      other.checkIn < res.checkOut &&
+      other.checkOut > res.checkIn
+    );
+
+    if (overlapping.length > 0) {
+      setConflictBlockData({ target: res, conflicting: overlapping });
+      return;
+    }
+
+    updateStatus(res.id, 'Confirmé');
+  };
+
+  const isArrivalPassedOrToday = (checkIn: string) => {
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const checkInStr = checkIn.slice(0, 10);
+    return checkInStr <= todayStr;
+  };
+
+  const handleCancelReservation = (res: Reservation) => {
+    if (isArrivalPassedOrToday(res.checkIn)) {
+      alert("Impossible d'annuler cette réservation : le jour d'arrivée est déjà atteint ou passé.");
+      return;
+    }
+    updateStatus(res.id, 'Annulé');
+  };
 
   const filtered = reservations
     .filter(r => {
@@ -208,11 +550,12 @@ const ReservationsTab = ({ reservations, conflictIds, rooms, updateStatus, delet
       if (!search.trim()) return true;
       const q = search.toLowerCase();
       const room = rooms.find(rm => rm.id === r.roomId);
-      return r.clientName.toLowerCase().includes(q) || r.phone.includes(q) || (room?.name.toLowerCase().includes(q) ?? false);
+      return r.clientName.toLowerCase().includes(q) || r.phone.includes(q) || (r.remarks?.toLowerCase().includes(q) ?? false) || (room?.name.toLowerCase().includes(q) ?? false);
     });
 
   return (
     <div>
+      {/* Modal de Confirmation de Suppression */}
       {deleteConfirmId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm" onClick={() => setDeleteConfirmId(null)} />
@@ -227,6 +570,36 @@ const ReservationsTab = ({ reservations, conflictIds, rooms, updateStatus, delet
         </div>
       )}
 
+      {/* Modal d'Alerte Conflit — Style sobre et direct */}
+      {conflictBlockData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setConflictBlockData(null)} />
+          <div className="relative bg-white rounded-2xl shadow-xl p-6 max-w-md w-full z-10 border border-gray-100">
+            <h3 className="font-heading font-bold text-gray-900 text-lg mb-2">Chambre déjà occupée</h3>
+            <p className="text-gray-600 text-sm mb-4">
+              La <strong>{rooms.find(rm => rm.id === conflictBlockData.target.roomId)?.name || 'chambre'}</strong> est déjà confirmée sur cette période :
+            </p>
+            <div className="bg-gray-50 border border-gray-200/60 rounded-xl p-3.5 mb-5 space-y-2 text-sm">
+              {conflictBlockData.conflicting.map(conf => (
+                <div key={conf.id}>
+                  <p className="font-semibold text-gray-900">{conf.clientName} <span className="font-normal text-gray-500 text-xs">({formatPhone(conf.phone)})</span></p>
+                  <p className="text-xs text-gray-600 mt-0.5">Du {new Date(conf.checkIn).toLocaleDateString('fr-FR')} au {new Date(conf.checkOut).toLocaleDateString('fr-FR')} ({getNights(conf.checkIn, conf.checkOut)} {conf.stayType === 'journée' ? 'jour' : 'nuit'}{getNights(conf.checkIn, conf.checkOut) > 1 ? 's' : ''})</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setConflictBlockData(null)}
+                className="px-4 py-2 rounded-xl bg-gray-900 hover:bg-black text-white text-sm font-medium transition-colors cursor-pointer"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Réservations</h1>
@@ -234,15 +607,20 @@ const ReservationsTab = ({ reservations, conflictIds, rooms, updateStatus, delet
             {conflictIds.size > 0 && <span className="ml-2 text-red-600 font-medium">· {conflictIds.size} conflit{conflictIds.size > 1 ? 's' : ''}</span>}
           </p>
         </div>
-        <button type="button" onClick={() => exportCSV(reservations, rooms)} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 transition-colors text-sm">
-          <Download size={16} /> Exporter CSV
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-3">
+            {headerActions}
+          </div>
+          <button type="button" onClick={() => exportCSV(reservations, rooms)} className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2.5 rounded-xl font-medium hover:bg-gray-50 shadow-sm transition-colors text-sm">
+            <Download size={16} /> Exporter CSV
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1 max-w-xs">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input type="text" placeholder="Rechercher client, chambre..." value={search} onChange={e => setSearch(e.target.value)}
+          <input type="text" placeholder="Rechercher client, chambre, demande..." value={search} onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none text-sm" />
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -262,15 +640,22 @@ const ReservationsTab = ({ reservations, conflictIds, rooms, updateStatus, delet
 
       <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse text-sm">
             <thead>
-              <tr className="bg-gray-50 text-gray-500 text-sm uppercase tracking-wider">
-                <th className="px-6 py-4 font-medium">Client</th>
-                <th className="px-6 py-4 font-medium">Chambre</th>
-                <th className="px-6 py-4 font-medium">Dates</th>
-                <th className="px-6 py-4 font-medium">Paiement</th>
-                <th className="px-6 py-4 font-medium">Statut</th>
-                <th className="px-6 py-4 font-medium text-right">Actions</th>
+              <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider font-semibold">
+                <th className="sticky left-0 z-20 bg-gray-50 px-5 py-4 whitespace-nowrap border-r border-gray-200/80 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.06)]">Client</th>
+                <th className="px-5 py-4 whitespace-nowrap">Téléphone</th>
+                <th className="px-5 py-4 whitespace-nowrap">Email</th>
+                <th className="px-5 py-4 min-w-[180px]">Demande spéciale</th>
+                <th className="px-5 py-4 whitespace-nowrap">Chambre</th>
+                <th className="px-5 py-4 whitespace-nowrap">Tarif / Type</th>
+                <th className="px-5 py-4 whitespace-nowrap">Arrivée</th>
+                <th className="px-5 py-4 whitespace-nowrap">Départ</th>
+                <th className="px-5 py-4 whitespace-nowrap">Durée</th>
+                <th className="px-5 py-4 whitespace-nowrap">Montant Total</th>
+                <th className="px-5 py-4 whitespace-nowrap">Paiement</th>
+                <th className="px-5 py-4 whitespace-nowrap">Statut</th>
+                <th className="px-5 py-4 text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -279,36 +664,92 @@ const ReservationsTab = ({ reservations, conflictIds, rooms, updateStatus, delet
                 const nights = getNights(res.checkIn, res.checkOut);
                 const price = room ? (res.stayType === 'journée' ? room.price_day : room.price_night) : 0;
                 const total = getReservationPricing(price, nights).total;
-                const unit = res.stayType === 'journée' ? 'j' : 'n';
                 const isConflict = conflictIds.has(res.id);
+                const isPastArrival = isArrivalPassedOrToday(res.checkIn);
                 return (
-                  <tr key={res.id} className={`hover:bg-gray-50/50 transition-colors ${isConflict ? 'bg-red-50/50' : ''}`}>
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900 flex items-center gap-2">
-                        {res.clientName}
+                  <tr key={res.id} className={`group hover:bg-gray-50/70 transition-colors ${isConflict ? 'bg-red-50/50' : 'bg-white'}`}>
+                    {/* 1. Client (Colonne Fixe) */}
+                    <td className={`sticky left-0 z-10 px-5 py-4 whitespace-nowrap font-medium text-gray-900 border-r border-gray-200/80 shadow-[3px_0_6px_-2px_rgba(0,0,0,0.06)] transition-colors ${
+                      isConflict ? 'bg-red-50 group-hover:bg-red-100/70' : 'bg-white group-hover:bg-gray-50'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-gray-900">{res.clientName}</span>
                         {isConflict && (
                           <span className="inline-flex items-center gap-1 text-xs text-red-600 bg-red-100 px-2 py-0.5 rounded-full font-medium">
                             <AlertTriangle size={11} /> Conflit
                           </span>
                         )}
                       </div>
-                      <div className="text-sm text-gray-500">{res.phone}</div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="text-gray-900">{room?.name || 'Inconnue'}</div>
-                      <div className="text-sm text-gray-500">{price.toLocaleString()} F/{unit} · {nights} {res.stayType === 'journée' ? 'jour' : 'nuit'}{nights > 1 ? 's' : ''} · Total {total.toLocaleString()} F</div>
+
+                    {/* 2. Téléphone */}
+                    <td className="px-5 py-4 whitespace-nowrap font-medium text-gray-700">
+                      {formatPhone(res.phone)}
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="text-gray-900">{new Date(res.checkIn).toLocaleDateString('fr-FR')}</div>
-                      <div className="text-sm text-gray-500">au {new Date(res.checkOut).toLocaleDateString('fr-FR')}</div>
+
+                    {/* 3. Email */}
+                    <td className="px-5 py-4 whitespace-nowrap text-gray-500">
+                      {res.email || <span className="text-gray-400">—</span>}
                     </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${res.paymentMethod === 'Orange Money' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'}`}>
+
+                    {/* 4. Demandes spéciales */}
+                    <td className="px-5 py-4 min-w-[180px] max-w-xs">
+                      {res.remarks ? (
+                        <div className="inline-flex items-start gap-1.5 text-xs text-amber-900 bg-amber-50/90 border border-amber-200/80 px-2.5 py-1.5 rounded-xl">
+                          <MessageSquare size={13} className="text-amber-600 shrink-0 mt-0.5" />
+                          <span className="leading-snug">{res.remarks}</span>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 font-normal">—</span>
+                      )}
+                    </td>
+
+                    {/* 5. Chambre */}
+                    <td className="px-5 py-4 whitespace-nowrap font-bold text-gray-900">
+                      {room?.name || 'Inconnue'}
+                    </td>
+
+                    {/* 6. Tarif / Type */}
+                    <td className="px-5 py-4 whitespace-nowrap text-gray-700">
+                      <span className="bg-gray-100 text-gray-800 text-xs px-2.5 py-1 rounded-lg font-medium">
+                        {price.toLocaleString()} F / {res.stayType === 'journée' ? 'jour' : 'nuit'}
+                      </span>
+                    </td>
+
+                    {/* 7. Arrivée */}
+                    <td className="px-5 py-4 whitespace-nowrap text-gray-800 font-medium">
+                      {new Date(res.checkIn).toLocaleDateString('fr-FR')}
+                    </td>
+
+                    {/* 8. Départ */}
+                    <td className="px-5 py-4 whitespace-nowrap text-gray-800 font-medium">
+                      {new Date(res.checkOut).toLocaleDateString('fr-FR')}
+                    </td>
+
+                    {/* 9. Durée */}
+                    <td className="px-5 py-4 whitespace-nowrap text-gray-600">
+                      {nights} {res.stayType === 'journée' ? 'jour' : 'nuit'}{nights > 1 ? 's' : ''}
+                    </td>
+
+                    {/* 10. Montant Total */}
+                    <td className="px-5 py-4 whitespace-nowrap">
+                      <span className="text-primary-800 font-bold text-base">
+                        {total.toLocaleString()} F
+                      </span>
+                    </td>
+
+                    {/* 11. Paiement */}
+                    <td className="px-5 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                        res.paymentMethod === 'Orange Money' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'
+                      }`}>
                         {res.paymentMethod}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
+
+                    {/* 12. Statut */}
+                    <td className="px-5 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
                         res.status === 'Confirmé' ? 'bg-green-100 text-green-800' :
                         res.status === 'En attente' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
                       }`}>
@@ -318,22 +759,84 @@ const ReservationsTab = ({ reservations, conflictIds, rooms, updateStatus, delet
                         {res.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right space-x-2">
+
+                    {/* 13. Actions */}
+                    <td className="px-5 py-4 text-right space-x-2 whitespace-nowrap">
                       {res.status === 'En attente' && (
-                        <>
-                          <button type="button" onClick={() => updateStatus(res.id, 'Confirmé')} aria-label="Confirmer et envoyer l'email" title="Confirmer et envoyer l'email" className="text-green-600 hover:text-green-900 bg-green-50 p-2 rounded-lg transition-colors"><CheckCircle2 size={18} /></button>
-                          <button type="button" onClick={() => updateStatus(res.id, 'Annulé')} aria-label="Annuler" className="text-red-600 hover:text-red-900 bg-red-50 p-2 rounded-lg transition-colors"><XCircle size={18} /></button>
-                        </>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleConfirmReservation(res)}
+                            aria-label="Confirmer et envoyer l'email"
+                            title="Confirmer la réservation et envoyer l'email"
+                            className="text-green-600 hover:text-green-900 bg-green-50 hover:bg-green-100 p-2 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <CheckCircle2 size={18} />
+                          </button>
+                          {!isPastArrival && (
+                            <button
+                              type="button"
+                              onClick={() => handleCancelReservation(res)}
+                              aria-label="Annuler la réservation"
+                              title="Annuler cette réservation"
+                              className="text-red-600 hover:text-red-900 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <XCircle size={18} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {res.status === 'Confirmé' && (
+                        !isPastArrival ? (
+                          <button
+                            type="button"
+                            onClick={() => handleCancelReservation(res)}
+                            aria-label="Annuler la réservation"
+                            title="Annuler cette réservation confirmée (libère la chambre)"
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors cursor-pointer border border-red-200/60"
+                          >
+                            <XCircle size={14} />
+                            <span>Annuler</span>
+                          </button>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-400 bg-gray-100 px-2.5 py-1 rounded-lg select-none"
+                            title="Annulation non autorisée : la date d'arrivée est déjà atteinte ou passée"
+                          >
+                            Séjour en cours / passé
+                          </span>
+                        )
                       )}
                       {res.status === 'Annulé' && (
-                        <button type="button" onClick={() => setDeleteConfirmId(res.id)} aria-label="Supprimer" className="text-gray-400 hover:text-red-600 bg-gray-50 hover:bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {!isPastArrival && (
+                            <button
+                              type="button"
+                              onClick={() => updateStatus(res.id, 'En attente')}
+                              aria-label="Remettre en attente"
+                              title="Remettre cette réservation en attente"
+                              className="text-amber-600 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 p-2 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <Clock size={16} />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setDeleteConfirmId(res.id)}
+                            aria-label="Supprimer définitivement"
+                            title="Supprimer définitivement"
+                            className="text-gray-400 hover:text-red-600 bg-gray-50 hover:bg-red-50 p-2 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">Aucune réservation trouvée.</td></tr>
+                <tr><td colSpan={13} className="px-6 py-8 text-center text-gray-400">Aucune réservation trouvée.</td></tr>
               )}
             </tbody>
           </table>
@@ -344,7 +847,7 @@ const ReservationsTab = ({ reservations, conflictIds, rooms, updateStatus, delet
 };
 
 // ─── 2. Vue Planning / Calendrier ─────────────────────────────────────────
-const PlanningTab = ({ reservations, conflictIds, rooms }: { reservations: Reservation[]; conflictIds: Set<string>; rooms: DashboardRoom[] }) => {
+const PlanningTab = ({ reservations, conflictIds, rooms, headerActions }: { reservations: Reservation[]; conflictIds: Set<string>; rooms: DashboardRoom[]; headerActions?: React.ReactNode }) => {
   const today = new Date();
   const [currentMonth, setCurrentMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
 
@@ -377,15 +880,20 @@ const PlanningTab = ({ reservations, conflictIds, rooms }: { reservations: Reser
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Planning</h1>
           <p className="text-gray-500 capitalize">{monthLabel}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={prevMonth} aria-label="Mois précédent" className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"><ChevronLeft size={18} /></button>
-          <button type="button" onClick={() => { setCurrentMonth(new Date(today.getFullYear(), today.getMonth(), 1)); setStartDay(0); }} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium hover:bg-gray-50 transition-colors">Aujourd'hui</button>
-          <button type="button" onClick={nextMonth} aria-label="Mois suivant" className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"><ChevronRight size={18} /></button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="hidden md:flex items-center gap-3">
+            {headerActions}
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={prevMonth} aria-label="Mois précédent" className="p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 shadow-sm transition-colors"><ChevronLeft size={18} /></button>
+            <button type="button" onClick={() => { setCurrentMonth(new Date(today.getFullYear(), today.getMonth(), 1)); setStartDay(0); }} className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-medium hover:bg-gray-50 shadow-sm transition-colors">Aujourd'hui</button>
+            <button type="button" onClick={nextMonth} aria-label="Mois suivant" className="p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 shadow-sm transition-colors"><ChevronRight size={18} /></button>
+          </div>
         </div>
       </div>
 
@@ -479,7 +987,7 @@ const PlanningTab = ({ reservations, conflictIds, rooms }: { reservations: Reser
 };
 
 // ─── Vue Clients ───────────────────────────────────────────────────────────
-const ClientsTab = ({ reservations, rooms }: { reservations: Reservation[]; rooms: DashboardRoom[] }) => {
+const ClientsTab = ({ reservations, rooms, headerActions }: { reservations: Reservation[]; rooms: DashboardRoom[]; headerActions?: React.ReactNode }) => {
   const [search, setSearch] = useState('');
 
   const clientsMap = new Map<string, { name: string; phone: string; email?: string; count: number; lastVisit: string; totalSpent: number }>();
@@ -487,14 +995,21 @@ const ClientsTab = ({ reservations, rooms }: { reservations: Reservation[]; room
     const room = rooms.find(rm => rm.id === r.roomId);
     const nights = getNights(r.checkIn, r.checkOut);
     const price = room ? (r.stayType === 'journée' ? room.price_day : room.price_night) : 0;
-    const spent = r.status === 'Confirmé' ? getReservationPricing(price, nights).total : 0;
+    const total = getReservationPricing(price, nights).total;
     const existing = clientsMap.get(r.phone);
     if (existing) {
       existing.count += 1;
-      existing.totalSpent += spent;
-      if (r.createdAt > existing.lastVisit) existing.lastVisit = r.createdAt;
+      existing.totalSpent += total;
+      if (r.checkIn > existing.lastVisit) existing.lastVisit = r.checkIn;
     } else {
-      clientsMap.set(r.phone, { name: r.clientName, phone: r.phone, email: r.email, count: 1, lastVisit: r.createdAt, totalSpent: spent });
+      clientsMap.set(r.phone, {
+        name: r.clientName,
+        phone: r.phone,
+        email: r.email,
+        count: 1,
+        lastVisit: r.checkIn,
+        totalSpent: total,
+      });
     }
   });
 
@@ -512,6 +1027,9 @@ const ClientsTab = ({ reservations, rooms }: { reservations: Reservation[]; room
         <div>
           <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Clients</h1>
           <p className="text-gray-500">{clients.length} client{clients.length > 1 ? 's' : ''} enregistré{clients.length > 1 ? 's' : ''}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {headerActions}
         </div>
       </div>
       <div className="relative max-w-sm mb-6">
@@ -532,7 +1050,7 @@ const ClientsTab = ({ reservations, rooms }: { reservations: Reservation[]; room
             <div className="space-y-1.5 mt-3">
               <div className="flex items-center gap-2 text-sm text-gray-500">
                 <Phone size={13} className="text-primary-400 shrink-0" />
-                <a href={`tel:${client.phone}`} className="hover:text-primary-600 transition-colors">{client.phone}</a>
+                <a href={`tel:${client.phone}`} className="hover:text-primary-600 transition-colors font-medium">{formatPhone(client.phone)}</a>
               </div>
               {client.email && (
                 <div className="flex items-center gap-2 text-sm text-gray-500">
@@ -607,7 +1125,7 @@ const ImagePickerWithMain = ({
 
   const fetchGallery = useCallback(async () => {
     setLoadingGallery(true);
-    const { data, error } = await supabase.from('gallery').select('*').order('created_at', { ascending: false });
+    const { data, error } = await api.from('gallery').select('*').order('created_at', { ascending: false });
     if (error) { setError("Impossible de charger la galerie."); setGallery([]); }
     else if (data) { setGallery(data); setError(null); }
     setLoadingGallery(false);
@@ -620,19 +1138,27 @@ const ImagePickerWithMain = ({
     if (!files.length) return;
     setUploading(true); setError(null);
     const uploadErrors: string[] = [];
+    const uploadedUrls: string[] = [];
     for (const file of files) {
       const ext = file.name.split('.').pop();
       const filePath = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage.from(BUCKET).upload(filePath, file, { upsert: false, cacheControl: '3600', contentType: file.type });
-      if (!error) {
-        const { data: { publicUrl } } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
-        const { error: ge } = await supabase.from('gallery').insert({ url: publicUrl, name: file.name });
+      const { data: uploadedFile, error } = await api.storage.from(BUCKET).upload(filePath, file);
+      if (!error && uploadedFile?.path) {
+        const { error: ge } = await api.from('gallery').insert({ url: uploadedFile.path, name: file.name });
         if (ge) uploadErrors.push(`${file.name}: erreur galerie`);
+        else uploadedUrls.push(uploadedFile.path);
       } else {
-        uploadErrors.push(`${file.name}: ${error.message}`);
+        uploadErrors.push(`${file.name}: ${error?.message ?? 'erreur upload'}`);
       }
     }
     await fetchGallery();
+    if (uploadedUrls.length) {
+      if (mode === 'main') {
+        onChangeMain(uploadedUrls[0]);
+      } else {
+        onChangeExtra([...extraImages, ...uploadedUrls]);
+      }
+    }
     setUploading(false);
     if (uploadErrors.length) setError(uploadErrors.join(' '));
     if (inputRef.current) inputRef.current.value = '';
@@ -640,8 +1166,8 @@ const ImagePickerWithMain = ({
 
   const handleDeleteFromGallery = async (id: string, url: string) => {
     const path = url.split(`/${BUCKET}/`)[1];
-    if (path) await supabase.storage.from(BUCKET).remove([path]);
-    await supabase.from('gallery').delete().eq('id', id);
+    if (path) await api.storage.from(BUCKET).remove([path]);
+    await api.from('gallery').delete().eq('id', id);
     if (mainImage === url) onChangeMain('');
     onChangeExtra(extraImages.filter(u => u !== url));
     await fetchGallery();
@@ -707,7 +1233,7 @@ const ImagePickerWithMain = ({
           Aucune image. Uploadez-en pour commencer.
         </div>
       ) : (
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-56 overflow-y-auto pr-1">
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-56 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pr-1">
           {gallery.map(img => {
             const sel = isSelected(img.url);
             const isMain = mainImage === img.url;
@@ -718,7 +1244,7 @@ const ImagePickerWithMain = ({
                 }`}
                 onClick={() => handleSelect(img.url)}
               >
-                <img src={img.url} alt={img.name} className="w-full h-full object-cover" loading="lazy" />
+                <img src={img.url} alt={img.name} className="w-full h-full object-cover" />
                 {isMain && (
                   <div className="absolute inset-0 bg-yellow-400/20 flex items-center justify-center">
                     <span className="bg-yellow-400 text-yellow-900 text-[10px] font-bold px-1.5 py-0.5 rounded-full">PRINCIPALE</span>
@@ -775,7 +1301,7 @@ const ImagePickerWithMain = ({
     </div>
   );
 };
-const ChambresTab = () => {
+const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}) => {
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<RoomRow | null>(null);
@@ -787,12 +1313,23 @@ const ChambresTab = () => {
 
   const fetchRooms = async () => {
     setLoading(true);
-    const { data } = await supabase.from('rooms').select('*').order('name');
+    const { data } = await api.from('rooms').select('*').order('name');
     if (data) setRooms(data as RoomRow[]);
     setLoading(false);
   };
 
   useEffect(() => { fetchRooms(); }, []);
+
+  useEffect(() => {
+    if (editing || deleteConfirmId) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [editing, deleteConfirmId]);
 
   const openEdit = (room: RoomRow) => {
     setEditing(room);
@@ -813,9 +1350,9 @@ const ChambresTab = () => {
     setSaving(true);
     if (isNew) {
       const id = form.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now();
-      await supabase.from('rooms').insert({ id, ...form });
+      await api.from('rooms').insert({ id, ...form });
     } else if (editing) {
-      await supabase.from('rooms').update(form).eq('id', editing.id);
+      await api.from('rooms').update(form).eq('id', editing.id);
     }
     await fetchRooms();
     setSaving(false);
@@ -823,7 +1360,7 @@ const ChambresTab = () => {
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.from('rooms').delete().eq('id', id);
+    await api.from('rooms').delete().eq('id', id);
     await fetchRooms();
     setDeleteConfirmId(null);
   };
@@ -842,7 +1379,7 @@ const ChambresTab = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm" onClick={() => setDeleteConfirmId(null)} />
           <div className="relative bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full z-10">
-            <h3 className="font-heading font-bold text-gray-900 text-lg mb-2">Supprimer cet appartement ?</h3>
+            <h3 className="font-heading font-bold text-gray-900 text-lg mb-2">Supprimer l'appartement ?</h3>
             <p className="text-gray-500 text-sm mb-6">Cette action est irréversible.</p>
             <div className="flex gap-3">
               <button type="button" onClick={() => setDeleteConfirmId(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-medium hover:bg-gray-50">Annuler</button>
@@ -856,8 +1393,8 @@ const ChambresTab = () => {
       {editing && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm" onClick={closeEdit} />
-          <div className="relative bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full sm:max-w-2xl z-10 max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between rounded-t-3xl">
+          <div className="relative bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full sm:max-w-2xl z-10 max-h-[90vh] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between rounded-t-3xl z-10">
               <h3 className="font-heading font-bold text-gray-900 text-lg">{isNew ? 'Nouvel appartement' : 'Modifier l\'appartement'}</h3>
               <button type="button" onClick={closeEdit} aria-label="Fermer" className="p-2 rounded-full hover:bg-gray-100 transition-colors"><X size={20} /></button>
             </div>
@@ -880,12 +1417,8 @@ const ChambresTab = () => {
                   <input id="room-capacity" type="text" className={inputCls} value={form.capacity} onChange={e => setForm(f => ({ ...f, capacity: e.target.value }))} placeholder="2 personnes" />
                 </div>
                 <div className="sm:col-span-2">
-                  <label htmlFor="room-desc" className="text-sm font-semibold text-gray-700 mb-1.5 block">Description courte</label>
-                  <textarea id="room-desc" className={`${inputCls} resize-none`} rows={2} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
-                </div>
-                <div className="sm:col-span-2">
-                  <label htmlFor="room-longdesc" className="text-sm font-semibold text-gray-700 mb-1.5 block">Description longue</label>
-                  <textarea id="room-longdesc" className={`${inputCls} resize-none`} rows={3} value={form.long_description} onChange={e => setForm(f => ({ ...f, long_description: e.target.value }))} />
+                  <label htmlFor="room-desc" className="text-sm font-semibold text-gray-700 mb-1.5 block">Description</label>
+                  <textarea id="room-desc" className={`${inputCls} resize-none`} rows={3} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Description de l'appartement..." />
                 </div>
               </div>
 
@@ -927,14 +1460,19 @@ const ChambresTab = () => {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Appartements</h1>
           <p className="text-gray-500">{rooms.length} appartement{rooms.length > 1 ? 's' : ''}</p>
         </div>
-        <button type="button" onClick={openNew} className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-md">
-          <Plus size={16} /> Ajouter
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-3">
+            {headerActions}
+          </div>
+          <button type="button" onClick={openNew} className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-md">
+            <Plus size={16} /> Ajouter
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -993,18 +1531,32 @@ interface AuditEntry {
   created_at: string;
 }
 
-const AuditTab = () => {
+const parseAuditData = (val: unknown): Record<string, unknown> | null => {
+  if (!val) return null;
+  if (typeof val === 'object' && !Array.isArray(val)) return val as Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(String(val));
+    return typeof parsed === 'object' && parsed !== null ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const AuditTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}) => {
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase
+    api
       .from('audit_log')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(100)
       .then(({ data }) => {
-        if (data) setLogs(data as AuditEntry[]);
+        if (Array.isArray(data)) setLogs(data as AuditEntry[]);
+        setLoading(false);
+      })
+      .catch(() => {
         setLoading(false);
       });
   }, []);
@@ -1025,9 +1577,14 @@ const AuditTab = () => {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Journal d'audit</h1>
-        <p className="text-gray-500">Historique des 100 dernières actions sur les réservations.</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <div>
+          <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Journal d'audit</h1>
+          <p className="text-gray-500">Historique des 100 dernières actions sur les réservations.</p>
+        </div>
+        <div className="hidden md:flex items-center gap-3">
+          {headerActions}
+        </div>
       </div>
 
       {loading ? (
@@ -1035,7 +1592,7 @@ const AuditTab = () => {
       ) : logs.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <ClipboardList size={40} className="mx-auto mb-3 opacity-30" />
-          <p>Aucune action enregistrée.</p>
+          <p>Aucune action enregistrée pour le moment.</p>
         </div>
       ) : (
         <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
@@ -1050,30 +1607,34 @@ const AuditTab = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {logs.map(log => (
-                  <tr key={log.id} className="hover:bg-gray-50/50">
-                    <td className="px-6 py-4 text-sm text-gray-500 whitespace-nowrap">
-                      {new Date(log.created_at).toLocaleString('fr-FR')}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${actionColor(log.action)}`}>
-                        {actionLabel(log.action)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm font-mono text-gray-700">{log.record_id}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {log.action === 'UPDATE' && log.old_data && log.new_data && (
-                        <span>
-                          Statut : <span className="text-gray-700 font-medium">{String(log.old_data.status ?? '—')}</span>
-                          {' → '}
-                          <span className="text-gray-700 font-medium">{String(log.new_data.status ?? '—')}</span>
+                {logs.map(log => {
+                  const oldData = parseAuditData(log.old_data);
+                  const newData = parseAuditData(log.new_data);
+                  return (
+                    <tr key={log.id} className="hover:bg-gray-50/50">
+                      <td className="px-6 py-4 text-sm text-gray-500 whitespace-nowrap">
+                        {new Date(log.created_at).toLocaleString('fr-FR')}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${actionColor(log.action)}`}>
+                          {actionLabel(log.action)}
                         </span>
-                      )}
-                      {log.action === 'INSERT' && <span className="text-green-700">Nouvelle réservation</span>}
-                      {log.action === 'DELETE' && <span className="text-red-700">Réservation supprimée</span>}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-mono text-gray-700">{log.record_id}</td>
+                      <td className="px-6 py-4 text-sm text-gray-500">
+                        {log.action === 'UPDATE' && oldData && newData && (
+                          <span>
+                            Statut : <span className="text-gray-700 font-medium">{String(oldData.status ?? '—')}</span>
+                            {' → '}
+                            <span className="text-gray-700 font-medium">{String(newData.status ?? '—')}</span>
+                          </span>
+                        )}
+                        {log.action === 'INSERT' && <span className="text-green-700">Nouvelle réservation</span>}
+                        {log.action === 'DELETE' && <span className="text-red-700">Réservation supprimée</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1082,6 +1643,7 @@ const AuditTab = () => {
     </div>
   );
 };
+
 
 // ─── 3. Dashboard principal avec notifications temps réel ─────────────────
 const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: () => void }) => {
@@ -1094,24 +1656,21 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
     price_day: r.priceDay,
   }));
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
-  const [notifications, setNotifications] = useState<{ id: string; message: string }[]>([]);
-  const prevCountRef = useRef<number | null>(null);
 
   // Détection des conflits — mémoïsé pour éviter O(n²) à chaque render
   const conflictIds = useMemo(() => getConflictIds(reservations), [reservations]);
 
-  // Notifications temps réel : nouvelle réservation
-  useEffect(() => {
-    if (prevCountRef.current === null) { prevCountRef.current = reservations.length; return; }
-    if (reservations.length > prevCountRef.current) {
-      const newest = reservations[0];
-      const room = rooms.find(r => r.id === newest?.roomId);
-      const notif = { id: Date.now().toString(), message: `Nouvelle réservation de ${newest?.clientName} — ${room?.name ?? newest?.roomId}` };
-      setNotifications(n => [notif, ...n].slice(0, 5));
-      setTimeout(() => setNotifications(n => n.filter(x => x.id !== notif.id)), 6000);
-    }
-    prevCountRef.current = reservations.length;
-  }, [reservations, rooms]);
+  // ─── Système de notifications temps réel ─────────────────────────────
+  const {
+    notifications,
+    toasts,
+    unreadCount,
+    markAsRead,
+    markAllRead,
+    removeNotification,
+    clearAll,
+    dismissToast,
+  } = useNotifications(rooms);
 
   const navItems: { id: AdminTab; label: string; icon: LucideIcon }[] = [
     { id: 'dashboard', label: 'Tableau de Bord', icon: LayoutDashboard },
@@ -1122,24 +1681,40 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
     { id: 'audit', label: 'Journal d\'audit', icon: ClipboardList },
   ];
 
+  const headerActions = (
+    <div className="flex items-center gap-3">
+      <AdminGlobalSearch
+        reservations={reservations}
+        rooms={rooms}
+        onNavigateTab={setActiveTab}
+      />
+      <NotificationCenter
+        notifications={notifications}
+        toasts={toasts}
+        unreadCount={unreadCount}
+        onMarkRead={markAsRead}
+        onMarkAllRead={markAllRead}
+        onRemove={removeNotification}
+        onClearAll={clearAll}
+        onDismissToast={dismissToast}
+        onNavigate={(tab) => setActiveTab(tab as AdminTab)}
+      />
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      {/* Notifications toast */}
-      <div className="fixed top-4 right-4 z-[200] space-y-2 pointer-events-none">
-        {notifications.map(n => (
-          <div key={n.id} className="flex items-center gap-3 bg-white border border-gray-200 shadow-lg rounded-2xl px-4 py-3 text-sm text-gray-800 max-w-xs animate-fade-in pointer-events-auto">
-            <Bell size={16} className="text-primary-500 shrink-0" />
-            {n.message}
-          </div>
-        ))}
-      </div>
+      {/* Toasts fixes — rendu unique dans l’arbre */}
+      <NotificationToasts toasts={toasts} onDismissToast={dismissToast} />
 
       <aside className="w-64 bg-white border-r border-gray-100 hidden md:flex flex-col h-screen sticky top-0">
         <div className="p-6">
-          <Link to="/" className="flex items-center gap-2 mb-10">
-            <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-heading font-bold text-sm">RC</div>
-            <div className="font-heading font-bold text-xl text-primary-900">Admin Cheliel</div>
-          </Link>
+          <div className="flex items-center gap-2 mb-10">
+            <Link to="/" className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-heading font-bold text-sm">RC</div>
+              <div className="font-heading font-bold text-xl text-primary-900">Admin Cheliel</div>
+            </Link>
+          </div>
           <nav className="space-y-1">
             {navItems.map(item => (
               <button key={item.id} type="button" onClick={() => setActiveTab(item.id)}
@@ -1165,7 +1740,25 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
         <div className="md:hidden mb-6">
           <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm mb-4">
             <div className="font-heading font-bold text-xl text-primary-900">Admin Cheliel</div>
-            <button type="button" onClick={onLogout} aria-label="Déconnexion" className="p-2 text-red-600 bg-red-50 rounded-lg"><LogOut size={20} /></button>
+            <div className="flex items-center gap-2">
+              <AdminGlobalSearch
+                reservations={reservations}
+                rooms={rooms}
+                onNavigateTab={setActiveTab}
+              />
+              <NotificationCenter
+                notifications={notifications}
+                toasts={toasts}
+                unreadCount={unreadCount}
+                onMarkRead={markAsRead}
+                onMarkAllRead={markAllRead}
+                onRemove={removeNotification}
+                onClearAll={clearAll}
+                onDismissToast={dismissToast}
+                onNavigate={(tab) => setActiveTab(tab as AdminTab)}
+              />
+              <button type="button" onClick={onLogout} aria-label="Déconnexion" className="p-2 text-red-600 bg-red-50 rounded-lg"><LogOut size={20} /></button>
+            </div>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1">
             {navItems.map(item => (
@@ -1181,17 +1774,30 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
         </div>
 
         {storageError && (
-          <div className="mb-6 flex items-center gap-3 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
-            <XCircle size={18} className="shrink-0" /> {storageError}
+          <div className="mb-6 flex items-center justify-between gap-3 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+            <div className="flex items-center gap-2">
+              <XCircle size={18} className="shrink-0" />
+              <span>{storageError}</span>
+            </div>
+            {storageError.toLowerCase().includes('non autorisé') && (
+              <button
+                type="button"
+                onClick={onLogout}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold transition-colors shrink-0"
+              >
+                Se reconnecter
+              </button>
+            )}
           </div>
         )}
 
-        {activeTab === 'dashboard' && <OverviewTab reservations={reservations} conflictIds={conflictIds} rooms={rooms} onTabChange={setActiveTab} />}
-        {activeTab === 'reservations' && <ReservationsTab reservations={reservations} conflictIds={conflictIds} rooms={rooms} updateStatus={updateStatus} deleteReservation={deleteReservation} />}
-        {activeTab === 'planning' && <PlanningTab reservations={reservations} conflictIds={conflictIds} rooms={rooms} />}
-        {activeTab === 'clients' && <ClientsTab reservations={reservations} rooms={rooms} />}
-        {activeTab === 'chambres' && <ChambresTab />}
-        {activeTab === 'audit' && <AuditTab />}
+
+        {activeTab === 'dashboard' && <OverviewTab reservations={reservations} conflictIds={conflictIds} rooms={rooms} onTabChange={setActiveTab} headerActions={headerActions} />}
+        {activeTab === 'reservations' && <ReservationsTab reservations={reservations} conflictIds={conflictIds} rooms={rooms} updateStatus={updateStatus} deleteReservation={deleteReservation} headerActions={headerActions} />}
+        {activeTab === 'planning' && <PlanningTab reservations={reservations} conflictIds={conflictIds} rooms={rooms} headerActions={headerActions} />}
+        {activeTab === 'clients' && <ClientsTab reservations={reservations} rooms={rooms} headerActions={headerActions} />}
+        {activeTab === 'chambres' && <ChambresTab headerActions={headerActions} />}
+        {activeTab === 'audit' && <AuditTab headerActions={headerActions} />}
       </main>
     </div>
   );
@@ -1203,19 +1809,20 @@ export const AdminDashboard = () => {
   const [sessionLoading, setSessionLoading] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setSessionLoading(false); });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    api.auth.getSession().then(({ data }) => { setSession(data.session); setSessionLoading(false); });
+    const { data: { subscription } } = api.auth.onAuthStateChange((_event, s) => setSession(s));
     return () => subscription.unsubscribe();
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault(); setLoginLoading(true); setError('');
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setError('Email ou mot de passe incorrect.');
+    const { error } = await api.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) setError(error.message || 'Email ou mot de passe incorrect.');
     setLoginLoading(false);
   };
 
@@ -1244,9 +1851,21 @@ export const AdminDashboard = () => {
           </div>
           <div>
             <label htmlFor="admin-password" className="sr-only">Mot de passe</label>
-            <input id="admin-password" type="password" value={password} onChange={e => setPassword(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all tracking-widest text-xl"
+            <div className="relative">
+              <input id="admin-password" type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                autoComplete="current-password"
+                className="w-full px-4 pr-12 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all tracking-widest text-xl"
               placeholder="••••••••" required />
+              <button
+                type="button"
+                onClick={() => setShowPassword(value => !value)}
+                aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                title={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-primary-600 transition-colors"
+              >
+                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
             {error && <p className="text-red-500 text-sm mt-2 text-center" role="alert">{error}</p>}
           </div>
           <button type="submit" disabled={loginLoading}
@@ -1261,19 +1880,42 @@ export const AdminDashboard = () => {
     </div>
   );
 
-  return <DashboardContent session={session} onLogout={() => supabase.auth.signOut()} />;
+  return <DashboardContent session={session} onLogout={() => api.auth.signOut()} />;
 };
 
 // ─── StatCard ──────────────────────────────────────────────────────────────
-const StatCard = ({ title, value, icon: Icon, color }: { title: string; value: string; icon: LucideIcon; color: 'blue' | 'green' | 'purple' | 'orange' }) => {
-  const colorStyles = { blue: 'bg-blue-50 text-blue-600', green: 'bg-green-50 text-green-600', purple: 'bg-purple-50 text-purple-600', orange: 'bg-orange-50 text-orange-600' };
+const StatCard = ({
+  title,
+  value,
+  icon: Icon,
+  color,
+}: {
+  title: string;
+  value: string;
+  icon: LucideIcon;
+  color: 'blue' | 'green' | 'purple' | 'orange';
+}) => {
+  const colorStyles = {
+    blue: 'bg-blue-50 text-blue-600 ring-1 ring-blue-500/10',
+    green: 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-500/10',
+    purple: 'bg-purple-50 text-purple-600 ring-1 ring-purple-500/10',
+    orange: 'bg-amber-50 text-amber-600 ring-1 ring-amber-500/10',
+  };
+
   return (
-    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
-      <div className={`w-14 h-14 rounded-xl flex items-center justify-center shrink-0 ${colorStyles[color]}`}><Icon size={24} /></div>
+    <div className="bg-white p-5 lg:p-6 rounded-2xl border border-gray-100 shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:shadow-sm transition-all flex flex-col justify-between min-w-0">
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <span className="text-gray-500 text-xs font-semibold uppercase tracking-wider truncate">{title}</span>
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${colorStyles[color]}`}>
+          <Icon size={18} />
+        </div>
+      </div>
       <div>
-        <p className="text-gray-500 text-sm font-medium mb-1">{title}</p>
-        <p className="text-2xl font-bold text-gray-900">{value}</p>
+        <p className="text-2xl lg:text-3xl font-bold font-heading text-gray-900 tracking-tight whitespace-nowrap">
+          {value}
+        </p>
       </div>
     </div>
   );
 };
+

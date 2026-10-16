@@ -115,7 +115,7 @@ export const ChambreDetail = () => {
             </div>
 
             {/* Prix + CTA */}
-            <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+            <div className="bg-white border border-gray-100 rounded-2xl p-6">
               <div className="flex items-end gap-2 mb-1">
                 <span className="text-4xl font-heading font-bold text-primary-600">{room.priceNight.toLocaleString()}</span>
                 <span className="text-gray-500 mb-1">FCFA / 24h</span>
@@ -123,7 +123,7 @@ export const ChambreDetail = () => {
               <p className="text-gray-400 text-sm mb-5">{room.count} appartements de ce type disponibles</p>
               <button
                 onClick={() => setIsModalOpen(true)}
-                className="w-full bg-primary-600 hover:bg-primary-700 text-white py-4 rounded-xl font-medium text-lg transition-colors shadow-lg shadow-primary-900/20"
+                className="w-full bg-primary-600 hover:bg-primary-700 text-white py-4 rounded-xl font-medium text-lg transition-colors"
               >
                 Réserver cet appartement
               </button>

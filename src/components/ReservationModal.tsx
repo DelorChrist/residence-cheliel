@@ -1,21 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, CheckCircle2, ChevronRight, ChevronLeft, User, CalendarDays, CreditCard, Sun, Moon } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import { Turnstile } from '@marsidev/react-turnstile';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { useRooms } from '../hooks/useRooms';
 import { useReservations, PaymentMethod, StayType } from '../hooks/useReservations';
-import { getNights, getReservationPricing, LONG_STAY_DISCOUNT_THRESHOLD } from '../hooks/useReservations';
-
-const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string;
+import { getNights, getReservationPricing } from '../hooks/useReservations';
+import { LegalModal, LegalTab } from './LegalModal';
 
 const normalizeCustomerPhone = (phone: string) => {
   const cleaned = phone.replace(/[\s().-]/g, '');
 
   if (!cleaned) return '';
-  if (cleaned.startsWith('+225') && /^\+225\d{8,10}$/.test(cleaned)) return cleaned;
-  if (cleaned.startsWith('225') && /^225\d{8,10}$/.test(cleaned)) return `+${cleaned}`;
-  if (/^0\d{9}$/.test(cleaned)) return `+225${cleaned.slice(1)}`;
+  // Numéro local 10 chiffres (ex: 0757180205) -> +2250757180205
+  if (/^0\d{9}$/.test(cleaned)) return `+225${cleaned}`;
+  // Si déjà avec +225 et 10 chiffres (ex: +2250757180205)
+  if (/^\+225\d{10}$/.test(cleaned)) return cleaned;
+  // Si commence par 225 avec 10 chiffres (ex: 2250757180205)
+  if (/^225\d{10}$/.test(cleaned)) return `+${cleaned}`;
+  // Si commence par +225 avec 9 chiffres (ex: +225757180205) -> insère le 0 manquant
+  if (/^\+225\d{9}$/.test(cleaned)) return `+2250${cleaned.slice(4)}`;
+  // Si commence par 225 avec 9 chiffres (ex: 225757180205)
+  if (/^225\d{9}$/.test(cleaned)) return `+2250${cleaned.slice(3)}`;
+  // Format international générique
+  if (/^\+?\d{8,15}$/.test(cleaned)) return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
 
   return '';
 };
@@ -119,12 +126,33 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
   const { addReservation } = useReservations();
   const { rooms } = useRooms();
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+
+  // Bloquer le scroll de la page en arrière-plan
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
+  // Remonter en haut du contenu à chaque nouvelle étape
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+  }, [step]);
+
   const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
   const [alternativeRoomIds, setAlternativeRoomIds] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [reservationNumber, setReservationNumber] = useState<string | null>(null);
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [legalModalOpen, setLegalModalOpen] = useState(false);
+  const [legalTab, setLegalTab] = useState<LegalTab>('rgcc');
+
+  const openLegal = (tab: LegalTab) => {
+    setLegalTab(tab);
+    setLegalModalOpen(true);
+  };
+
   const [formData, setFormData] = useState({
     clientName: '',
     phone: '',
@@ -153,6 +181,8 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
   const total = pricing.total;
 
   useEffect(() => {
+    let isCurrent = true;
+
     const checkAvailability = async () => {
       if (!formData.roomId || !formData.checkIn) {
         setAvailabilityMessage(null);
@@ -160,78 +190,126 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
         return;
       }
 
-      const { data: isAvailable, error } = await supabase.rpc('is_room_available_for_checkin', {
-        p_room_id: formData.roomId,
-        p_check_in: formData.checkIn,
-      });
+      let isAvailable: boolean | null = null;
 
-      if (error) {
+      // 1. Appel RPC pour vérifier la disponibilité de la chambre
+      // On teste d'abord avec les 2 dates si checkOut est renseigné
+      if (formData.checkOut) {
+        const { data, error } = await api.rpc('is_room_available_for_checkin', {
+          p_room_id: formData.roomId,
+          p_check_in: formData.checkIn,
+          p_check_out: formData.checkOut,
+        });
+        if (!error && typeof data === 'boolean') {
+          isAvailable = data;
+        }
+      }
+
+      // Si pas de checkOut ou si l'RPC à 3 paramètres a échoué (signature 2 params sur la DB)
+      if (isAvailable === null) {
+        const { data, error } = await api.rpc('is_room_available_for_checkin', {
+          p_room_id: formData.roomId,
+          p_check_in: formData.checkIn,
+        });
+        if (!error && typeof data === 'boolean') {
+          isAvailable = data;
+        } else if (error) {
+          console.warn('[ReservationModal] Erreur vérification disponibilité:', error.message);
+        }
+      }
+
+      if (!isCurrent) return;
+
+      // Si la chambre est libre
+      if (isAvailable === true) {
         setAvailabilityMessage(null);
         setAlternativeRoomIds([]);
         return;
       }
 
-      if (isAvailable) {
-        setAvailabilityMessage(null);
-        setAlternativeRoomIds([]);
-        return;
-      }
+      // Si la chambre est OCCUPÉE
+      if (isAvailable === false) {
+        const dateRangeText = formData.checkOut
+          ? `du ${new Date(formData.checkIn).toLocaleDateString('fr-FR')} au ${new Date(formData.checkOut).toLocaleDateString('fr-FR')}`
+          : `le ${new Date(formData.checkIn).toLocaleDateString('fr-FR')}`;
 
-      const { data: availableRooms } = await supabase.rpc('list_available_rooms_for_checkin', {
-        p_check_in: formData.checkIn,
-      });
+        // Recherche des alternatives disponibles
+        let altRooms: string[] = [];
+        const { data: availableRooms } = await api.rpc('list_available_rooms_for_checkin', {
+          p_check_in: formData.checkIn,
+        });
 
-      const alternatives = ((availableRooms ?? []) as Array<{ room_id: string }>)
-        .map(r => r.room_id)
-        .filter(id => id !== formData.roomId);
+        if (Array.isArray(availableRooms)) {
+          altRooms = availableRooms
+            .map((r: { room_id: string }) => r.room_id)
+            .filter((id: string) => id !== formData.roomId);
+        }
 
-      if (alternatives.length > 0) {
-        setAvailabilityMessage(`Cette chambre est déjà réservée le ${new Date(formData.checkIn).toLocaleDateString('fr-FR')}. Voici les autres chambres disponibles:`);
-        setAlternativeRoomIds(alternatives);
-      } else {
-        setAvailabilityMessage(`Aucune chambre n'est disponible le ${new Date(formData.checkIn).toLocaleDateString('fr-FR')}. Veuillez choisir une autre date.`);
-        setAlternativeRoomIds([]);
+        if (!isCurrent) return;
+
+        if (altRooms.length > 0) {
+          setAvailabilityMessage(`Cette chambre est occupée ${dateRangeText}. Vous pouvez choisir un autre appartement disponible ci-dessous :`);
+          setAlternativeRoomIds(altRooms);
+        } else {
+          setAvailabilityMessage(`Cette chambre est occupée ${dateRangeText}. Veuillez choisir d'autres dates.`);
+          setAlternativeRoomIds([]);
+        }
       }
     };
 
     checkAvailability();
-  }, [formData.checkIn, formData.roomId, rooms]);
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [formData.checkIn, formData.checkOut, formData.roomId, rooms]);
 
   const canNext1 = Boolean(selectedRoom && formData.checkIn && formData.checkOut && !availabilityMessage);
   const canNext2 = Boolean(formData.clientName.trim() && formData.phone.trim() && isValidEmail(formData.email));
 
   const handleSubmit = async () => {
     if (submitting) return;
-    if (!captchaToken) {
-      setSubmitError('Veuillez valider le CAPTCHA avant de confirmer.');
-      return;
-    }
     setSubmitting(true);
     setSubmitError(null);
     setReservationNumber(null);
 
     const normalizedPhone = normalizeCustomerPhone(formData.phone);
     if (!normalizedPhone) {
+      setSubmitting(false);
       setStep(2);
       setSubmitError('Numéro de téléphone invalide. Utilisez un format local comme 05XXXXXXXX ou international comme +225XXXXXXXXX.');
       return;
     }
 
     if (!isValidEmail(formData.email)) {
+      setSubmitting(false);
       setStep(2);
       setSubmitError('Adresse email invalide. Elle est obligatoire pour recevoir la confirmation par email.');
       return;
     }
 
-    const { data: isAvailable } = await supabase.rpc('is_room_available_for_checkin', {
+    // Vérification finale de sécurité avant enregistrement
+    let isAvailable: boolean | null = null;
+    const { data: checkWithDates, error: err1 } = await api.rpc('is_room_available_for_checkin', {
       p_room_id: formData.roomId,
       p_check_in: formData.checkIn,
+      p_check_out: formData.checkOut,
     });
+    if (!err1 && typeof checkWithDates === 'boolean') {
+      isAvailable = checkWithDates;
+    } else {
+      const { data: checkSingle } = await api.rpc('is_room_available_for_checkin', {
+        p_room_id: formData.roomId,
+        p_check_in: formData.checkIn,
+      });
+      if (typeof checkSingle === 'boolean') isAvailable = checkSingle;
+    }
 
     if (isAvailable === false) {
+      setSubmitting(false);
       setStep(1);
-      setAvailabilityMessage('La chambre sélectionnée vient d\'être réservée pour cette date. Choisissez une autre chambre.');
-      const { data: availableRooms } = await supabase.rpc('list_available_rooms_for_checkin', {
+      setAvailabilityMessage('Cette chambre est déjà occupée sur cette période. Veuillez choisir un autre appartement ou d\'autres dates.');
+      const { data: availableRooms } = await api.rpc('list_available_rooms_for_checkin', {
         p_check_in: formData.checkIn,
       });
       const alternatives = ((availableRooms ?? []) as Array<{ room_id: string }>)
@@ -254,8 +332,9 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
     });
 
     if (!result.ok) {
+      setSubmitting(false);
       setStep(1);
-      setSubmitError(result.error || 'Impossible d’enregistrer la réservation.');
+      setSubmitError(result.error || "Impossible d'enregistrer la réservation.");
       return;
     }
 
@@ -270,15 +349,15 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
       <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={step < 4 ? onClose : undefined}></div>
 
-      <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-lg z-10 overflow-hidden max-h-[85vh] overflow-y-auto">
+      <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-lg z-10 flex flex-col max-h-[85vh] overflow-hidden">
         <button onClick={onClose} aria-label="Fermer" className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 z-10 bg-white rounded-full p-1.5 shadow-sm transition-colors">
           <X size={20} />
         </button>
 
         {step < 4 ? (
           <>
-            {/* Header avec étapes */}
-            <div className="bg-primary-900 px-6 pt-6 pb-5">
+            {/* Header avec étapes — FIXE */}
+            <div className="bg-primary-900 px-6 pt-6 pb-5 flex-shrink-0 rounded-t-3xl">
               <h2 className="text-xl font-heading font-bold text-white mb-6">Demande de Réservation</h2>
               <div className="flex items-center gap-0">
                 {STEPS.map((s, i) => (
@@ -302,7 +381,8 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
               </div>
             </div>
 
-            {/* Contenu */}
+            {/* Contenu scrollable — scrollbar cachée */}
+            <div ref={scrollRef} className="flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
             <div className="p-6">
 
               {/* Étape 1 : Séjour */}
@@ -358,10 +438,10 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                     </div>
                   </div>
                   {availabilityMessage && (
-                    <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 space-y-3">
-                      <p>{availabilityMessage}</p>
+                    <div className="rounded-2xl border border-red-200/80 bg-red-50/80 p-4 text-sm text-red-900 space-y-3">
+                      <p className="font-medium">{availabilityMessage}</p>
                       {alternativeRoomIds.length > 0 && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                           {alternativeRoomIds.map((roomId) => {
                             const altRoom = rooms.find(r => r.id === roomId);
                             if (!altRoom) return null;
@@ -369,11 +449,18 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                               <button
                                 key={roomId}
                                 type="button"
-                                onClick={() => setFormData({ ...formData, roomId })}
-                                className="rounded-xl bg-primary-600 px-4 py-2 text-white font-medium hover:bg-primary-700 transition-colors text-left"
+                                onClick={() => {
+                                  setFormData({ ...formData, roomId });
+                                  setAvailabilityMessage(null);
+                                  setAlternativeRoomIds([]);
+                                }}
+                                className="rounded-xl bg-white border border-red-200/80 px-3.5 py-2.5 text-gray-800 hover:border-primary-500 hover:bg-primary-50 transition-colors text-left shadow-xs flex items-center justify-between"
                               >
-                                <span className="block">{altRoom.name}</span>
-                                <span className="block text-xs text-primary-100">{altRoom.capacity}</span>
+                                <div>
+                                  <span className="block font-semibold text-xs text-gray-900">{altRoom.name}</span>
+                                  <span className="block text-[11px] text-gray-500">{altRoom.capacity}</span>
+                                </div>
+                                <span className="text-xs font-bold text-primary-600">Choisir →</span>
                               </button>
                             );
                           })}
@@ -390,14 +477,8 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                     <div className="bg-primary-50 rounded-2xl p-4 space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-gray-600 text-sm">{nights} {formData.stayType === 'nuitée' ? 'nuit' : 'jour'}{nights > 1 ? 's' : ''} · {selectedRoom?.name}</span>
-                        <span className="font-medium text-gray-700">{pricing.subtotal.toLocaleString()} FCFA</span>
+                        <span className="font-medium text-gray-700">{total.toLocaleString()} FCFA</span>
                       </div>
-                      {pricing.discount > 0 && (
-                        <div className="flex items-center justify-between text-green-700 text-sm">
-                          <span>Réduction long séjour (20% dès {LONG_STAY_DISCOUNT_THRESHOLD} jours)</span>
-                          <span>-{pricing.discount.toLocaleString()} FCFA</span>
-                        </div>
-                      )}
                       <div className="flex items-center justify-between border-t border-primary-100 pt-2">
                         <span className="font-semibold text-gray-800">Total</span>
                         <span className="font-bold text-primary-700">{total.toLocaleString()} FCFA</span>
@@ -437,12 +518,12 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                     <label className="text-sm font-semibold text-gray-700 mb-3 block">Mode de paiement souhaité</label>
                     <div className="grid grid-cols-2 gap-4">
                       <label className={`cursor-pointer rounded-2xl border-2 p-5 flex flex-col items-center gap-2 transition-all ${formData.paymentMethod === 'Orange Money' ? 'border-orange-500 bg-orange-50 shadow-md' : 'border-gray-100 hover:border-orange-200'}`}>
-                        <input type="radio" name="payment" value="Orange Money" checked={formData.paymentMethod === 'Orange Money'} onChange={() => setFormData({...formData, paymentMethod: 'Orange Money'})} className="sr-only" />
+                        <input type="radio" name="payment" value="Orange Money" checked={formData.paymentMethod === 'Orange Money'} onChange={() => { setFormData({...formData, paymentMethod: 'Orange Money'}); setTimeout(() => confirmRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), 50); }} className="sr-only" />
                         <img src="/images/orange.png" alt="Orange Money" className="w-10 h-10 object-contain" />
                         <span className="font-bold text-orange-600 text-sm">Orange Money</span>
                       </label>
                       <label className={`cursor-pointer rounded-2xl border-2 p-5 flex flex-col items-center gap-2 transition-all ${formData.paymentMethod === 'Wave' ? 'border-blue-500 bg-blue-50 shadow-md' : 'border-gray-100 hover:border-blue-200'}`}>
-                        <input type="radio" name="payment" value="Wave" checked={formData.paymentMethod === 'Wave'} onChange={() => setFormData({...formData, paymentMethod: 'Wave'})} className="sr-only" />
+                        <input type="radio" name="payment" value="Wave" checked={formData.paymentMethod === 'Wave'} onChange={() => { setFormData({...formData, paymentMethod: 'Wave'}); setTimeout(() => confirmRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), 50); }} className="sr-only" />
                         <img src="/images/wave.png" alt="Wave" className="w-10 h-10 object-contain" />
                         <span className="font-bold text-blue-600 text-sm">Wave</span>
                       </label>
@@ -467,11 +548,6 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                     <div className="flex justify-between text-sm text-gray-600">
                       <span>Durée</span><span className="font-medium text-gray-800">{nights} {formData.stayType === 'nuitée' ? 'nuit' : 'jour'}{nights > 1 ? 's' : ''}</span>
                     </div>
-                    {pricing.discount > 0 && (
-                      <div className="flex justify-between text-sm text-green-700">
-                        <span>Réduction long séjour</span><span className="font-medium">-{pricing.discount.toLocaleString()} FCFA</span>
-                      </div>
-                    )}
                     <div className="border-t border-gray-200 pt-3 flex justify-between font-bold text-gray-900">
                       <span>Total estimé</span><span className="text-primary-600">{total.toLocaleString()} FCFA</span>
                     </div>
@@ -499,35 +575,33 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
                   </button>
                 ) : (
                   <div className="flex flex-col items-end gap-3 w-full">
-                    {/* CAPTCHA Turnstile */}
-                    {TURNSTILE_SITE_KEY ? (
-                      <>
-                        <Turnstile
-                          siteKey={TURNSTILE_SITE_KEY}
-                          onSuccess={token => setCaptchaToken(token)}
-                          onExpire={() => setCaptchaToken(null)}
-                          onError={() => setCaptchaToken(null)}
-                          options={{ theme: 'light', language: 'fr' }}
-                        />
-                        {!captchaToken && (
-                          <p className="text-xs text-gray-400 text-right">Validez le CAPTCHA pour continuer</p>
-                        )}
-                      </>
-                    ) : null}
                     <button
+                      ref={confirmRef}
                       onClick={handleSubmit}
-                      disabled={submitting || (!!TURNSTILE_SITE_KEY && !captchaToken)}
+                      disabled={submitting}
                       className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-medium transition-all shadow-md hover:scale-105 transform disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
                       {submitting ? 'Envoi...' : <><span>Confirmer</span><CheckCircle2 size={18} /></>}
                     </button>
+                    <p className="text-[11px] text-gray-500 text-right leading-tight max-w-xs sm:max-w-md">
+                      En confirmant, vous acceptez le{' '}
+                      <button type="button" onClick={() => openLegal('rgcc')} className="text-primary-700 underline font-medium hover:text-primary-900">
+                        Règlement Général
+                      </button>
+                      {' '}et la{' '}
+                      <button type="button" onClick={() => openLegal('pdc')} className="text-primary-700 underline font-medium hover:text-primary-900">
+                        Politique de Confidentialité
+                      </button>.
+                    </p>
                   </div>
                 )}
               </div>
             </div>
+            </div>
           </>
         ) : (
           /* Confirmation */
+          <div className="flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
           <div className="p-10 text-center flex flex-col items-center">
             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-5">
               <CheckCircle2 size={40} className="text-green-500" />
@@ -573,8 +647,15 @@ export const ReservationModal = ({ onClose, initialRoomId }: Props) => {
               Fermer
             </button>
           </div>
+          </div>
         )}
       </div>
+
+      <LegalModal
+        isOpen={legalModalOpen}
+        onClose={() => setLegalModalOpen(false)}
+        defaultTab={legalTab}
+      />
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import type { Room } from '../data/rooms';
 
 interface RoomRow {
@@ -46,7 +46,7 @@ export const RoomsProvider = ({ children }: { children: ReactNode }) => {
 
   const fetchRooms = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await api
       .from('rooms')
       .select('*')
       .order('name');
@@ -65,14 +65,14 @@ export const RoomsProvider = ({ children }: { children: ReactNode }) => {
     fetchRooms();
 
     // Realtime : mise à jour automatique quand l'admin modifie les chambres
-    const channel = supabase
+    const channel = api
       .channel('rooms-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, () => {
         fetchRooms();
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => { api.removeChannel(channel); };
   }, []);
 
   return (

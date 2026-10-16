@@ -28,7 +28,7 @@ export const AProposPage = () => {
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2 animate-bounce">
           <span className="text-white/70 text-xs font-medium tracking-widest uppercase">Découvrir</span>
           <div className="w-8 h-8 rounded-full border-2 border-white/50 flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
           </div>
         </div>
       </div>
@@ -179,7 +179,7 @@ export const AProposPage = () => {
                 </div>
                 <div>
                   <p className="font-bold text-gray-900 mb-1">Téléphone</p>
-                  <a href="tel:+2250779277924" className="text-primary-600 hover:text-primary-700 font-medium">+225 07 79 27 79 24</a>
+                  <a href="tel:+2250706601220" className="text-primary-600 hover:text-primary-700 font-medium">+225 07 06 60 12 20</a>
                 </div>
               </div>
               <div className="flex items-start gap-4">
@@ -224,7 +224,7 @@ export const AProposPage = () => {
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button
               onClick={() => setIsModalOpen(true)}
-              className="bg-primary-600 hover:bg-primary-500 text-white px-8 py-4 rounded-full font-medium text-lg transition-all hover:scale-105 transform shadow-lg"
+              className="bg-primary-600 hover:bg-primary-500 text-white px-8 py-4 rounded-full font-medium text-lg transition-all hover:scale-105 transform"
             >
               Réserver maintenant
             </button>

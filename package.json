@@ -6,11 +6,14 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "node ./scripts/deploy-ftp.js",
+    "deploy:backend": "node ./scripts/deploy-ftp.js --backend",
+    "deploy:all": "node ./scripts/deploy-ftp.js --all",
+    "package:o2switch": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-o2switch.ps1"
   },
   "dependencies": {
     "@marsidev/react-turnstile": "^1.5.0",
-    "@supabase/supabase-js": "^2.102.1",
     "clsx": "^2.1.1",
     "jspdf": "^4.2.1",
     "lucide-react": "^1.7.0",
@@ -25,8 +28,10 @@
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "5.1.1",
+    "basic-ftp": "^6.2.3",
     "tailwindcss": "4.1.17",
     "typescript": "5.9.3",
-    "vite": "^7.3.2"
+    "vite": "^7.3.2",
+    "vite-plugin-pwa": "^2.0.0"
   }
 }

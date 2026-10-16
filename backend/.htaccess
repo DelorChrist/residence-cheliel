@@ -1,0 +1,54 @@
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION BEGIN
+PassengerAppRoot "/home/fuke3268/api.residencescheliel.com"
+PassengerBaseURI "/"
+PassengerNodejs "/home/fuke3268/nodevenv/api.residencescheliel.com/20/bin/node"
+PassengerAppType node
+PassengerStartupFile src/server.js
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION END
+
+# ============================================================
+# Configuration Apache pour l'API Node.js (o2switch / cPanel)
+# ============================================================
+
+# 1. Bloquer l'exploration des répertoires
+Options -Indexes -MultiViews
+
+# 2. Interdire l'accès direct aux fichiers sources, de configuration et d'environnement
+<FilesMatch "^\.(env|git|htaccess|htpasswd)|\.(sql|log|bak|ini|md|js|json|env|lock|yml|yaml|example)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# 3. Bloquer l'accès direct aux répertoires internes et router Authorization
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Forcer HTTPS
+    RewriteCond %{HTTPS} off
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # Bloquer l'accès HTTP direct aux dossiers de code source
+    RewriteRule ^(src|database|scripts|tmp)(/.*)?$ - [F,L,NC]
+
+    # Permettre le passage indispensable des en-tetes Authorization a Node.js
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+
+<IfModule mod_setenvif.c>
+    SetEnvIfNoCase ^Authorization$ "(.+)" HTTP_AUTHORIZATION=$1
+</IfModule>
+
+# 4. En-têtes de sécurité HTTP
+<IfModule mod_headers.c>
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+

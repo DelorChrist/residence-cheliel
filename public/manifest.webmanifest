@@ -1,0 +1,64 @@
+{
+  "name": "Résidence Cheliel - Résidences Meublées",
+  "short_name": "Cheliel",
+  "description": "Résidences meublées haut de gamme à Yamoussoukro, Morofé à 100m du foyer des jeunes. Un havre de paix et de confort.",
+  "theme_color": "#8c6846",
+  "background_color": "#faf9f8",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "start_url": "/",
+  "id": "/",
+  "lang": "fr-FR",
+  "dir": "ltr",
+  "categories": ["travel", "lifestyle", "business"],
+  "icons": [
+    {
+      "src": "/pwa-64x64.png",
+      "sizes": "64x64",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/maskable-icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nos Chambres",
+      "short_name": "Chambres",
+      "description": "Consulter les chambres et suites disponibles",
+      "url": "/chambres",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Mes Réservations",
+      "short_name": "Réservations",
+      "description": "Suivre vos réservations en cours",
+      "url": "/mes-reservations",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "À Propos",
+      "short_name": "À Propos",
+      "description": "Découvrir la Résidence Cheliel",
+      "url": "/a-propos",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    }
+  ]
+}

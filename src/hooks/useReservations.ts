@@ -1,12 +1,9 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 
 export type PaymentMethod = 'Orange Money' | 'Wave';
 export type ReservationStatus = 'Confirmé' | 'En attente' | 'Annulé';
 export type StayType = 'nuitée' | 'journée';
-export const LONG_STAY_DISCOUNT_THRESHOLD = 3;
-export const LONG_STAY_DISCOUNT_RATE = 0.2;
-
 export interface Reservation {
   id: string;
   clientName: string;
@@ -22,7 +19,7 @@ export interface Reservation {
   createdAt: string;
 }
 
-// Type strict correspondant à la ligne Supabase
+// Type strict correspondant à la ligne de la base de données
 interface ReservationRow {
   id: string;
   client_name: string;
@@ -45,11 +42,8 @@ export const getNights = (checkIn: string, checkOut: string): number => {
 
 export const getReservationPricing = (unitPrice: number, nights: number) => {
   const safeNights = Math.max(1, nights);
-  const subtotal = unitPrice * safeNights;
-  const discount = safeNights >= LONG_STAY_DISCOUNT_THRESHOLD
-    ? Math.round(subtotal * LONG_STAY_DISCOUNT_RATE)
-    : 0;
-  return { subtotal, discount, total: subtotal - discount };
+  const total = unitPrice * safeNights;
+  return { subtotal: total, discount: 0, total };
 };
 
 // snake_case → camelCase (typé strictement)
@@ -68,7 +62,7 @@ const fromDB = (r: ReservationRow): Reservation => ({
   createdAt: r.created_at,
 });
 
-// camelCase → snake_case (sans id, généré par Supabase)
+// camelCase → snake_case (sans id, généré par le backend)
 const toDB = (r: Omit<Reservation, 'id' | 'createdAt'>) => ({
   client_name: r.clientName,
   phone: r.phone,
@@ -88,31 +82,42 @@ export const useReservations = () => {
   const [storageError, setStorageError] = useState<string | null>(null);
 
   const isAuthenticated = async () => {
-    const { data } = await supabase.auth.getSession();
+    const { data } = await api.auth.getSession();
     return Boolean(data.session);
   };
 
   useEffect(() => {
-    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let channel: ReturnType<typeof api.channel> | null = null;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
 
     const init = async () => {
       if (!(await isAuthenticated())) { setLoading(false); return; }
       await fetchReservations();
-      channel = supabase
+
+      channel = api
         .channel('reservations')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
           fetchReservations();
         })
-        .subscribe();
+        .subscribe((status, err) => {
+          if (err) console.warn('[useReservations] Realtime error:', err);
+          else console.info('[useReservations] Realtime status:', status);
+        });
+      // Polling de sécurité toutes les 15s (fallback si Realtime non activé)
+      pollInterval = setInterval(() => fetchReservations(), 15_000);
     };
 
     init();
-    return () => { if (channel) supabase.removeChannel(channel); };
+    return () => {
+      if (channel) api.removeChannel(channel);
+      if (pollInterval) clearInterval(pollInterval);
+    };
   }, []);
+
 
   const fetchReservations = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await api
       .from('reservations')
       .select('*')
       .order('created_at', { ascending: false });
@@ -130,7 +135,7 @@ export const useReservations = () => {
     const payload = toDB({ ...res, status: 'En attente' });
 
     // Utilise une RPC security definer pour contourner la RLS SELECT
-    const { data, error } = await supabase.rpc('insert_reservation', payload);
+    const { data, error } = await api.rpc('insert_reservation', payload);
 
     if (error) {
       console.error('Erreur ajout réservation:', error);
@@ -150,7 +155,7 @@ export const useReservations = () => {
   };
 
   const updateStatus = async (id: string, status: ReservationStatus) => {
-    const { error } = await supabase
+    const { error } = await api
       .from('reservations')
       .update({ status })
       .eq('id', id);
@@ -159,7 +164,7 @@ export const useReservations = () => {
   };
 
   const deleteReservation = async (id: string) => {
-    const { error } = await supabase
+    const { error } = await api
       .from('reservations')
       .delete()
       .eq('id', id);

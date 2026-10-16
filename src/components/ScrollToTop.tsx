@@ -5,8 +5,14 @@ export const ScrollToTop = () => {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
-    const handleScroll = () => setShow(window.scrollY > 400);
-    window.addEventListener('scroll', handleScroll);
+    const handleScroll = () => {
+      const windowHeight = window.innerHeight;
+      const documentHeight = document.documentElement.scrollHeight;
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+      const isNearBottom = scrollTop > 300 && (scrollTop + windowHeight) >= (documentHeight - 450);
+      setShow(isNearBottom);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 

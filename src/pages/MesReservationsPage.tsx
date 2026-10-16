@@ -7,7 +7,7 @@ import { ScrollToTop } from '../components/ScrollToTop';
 import { Reservation } from '../hooks/useReservations';
 import { useRooms } from '../hooks/useRooms';
 import { getNights, getReservationPricing } from '../hooks/useReservations';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { jsPDF } from 'jspdf';
 
 type ReservationRow = {
@@ -50,14 +50,15 @@ export const MesReservationsPage = () => {
   const [error, setError] = useState<string | null>(null);
   const { rooms } = useRooms();
 
-  const normalize = (value: string) => value.replace(/\s/g, '');
+  // Nettoie le numéro : conserve + et chiffres, supprime espaces / tirets / points / parenthèses
+  const normalize = (value: string) => value.replace(/[\s\-\.\(\)]/g, '');
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setSearching(true);
     setError(null);
 
-    const { data, error } = await supabase.rpc('search_reservations_by_phone', {
+    const { data, error } = await api.rpc('search_reservations_by_phone', {
       p_query: normalize(query),
     });
 
@@ -99,7 +100,9 @@ export const MesReservationsPage = () => {
           {/* Formulaire de recherche */}
           <form onSubmit={handleSearch} className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8 mb-10">
             <h2 className="text-xl font-heading font-bold text-gray-900 mb-2">Rechercher mes réservations</h2>
-            <p className="text-gray-500 text-sm mb-6">Entrez le numéro de téléphone utilisé lors de votre réservation ou votre code de réservation (ex: RES-C50D8627).</p>
+            <p className="text-gray-500 text-sm mb-6">
+              Entrez le numéro de téléphone utilisé lors de votre réservation ou votre code de réservation (ex&nbsp;: <span className="font-medium text-gray-700">RES-CXXXXXX</span>).
+            </p>
             <div className="flex gap-3">
               <div className="relative flex-1">
                 <Phone size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -107,7 +110,7 @@ export const MesReservationsPage = () => {
                   type="text"
                   value={query}
                   onChange={e => { setQuery(e.target.value); setSearched(false); }}
-                  placeholder="+225 07 79 27 79 24 ou RES-C50D8627"
+                  placeholder="+2250102030405 ou RES-CXXXXXXX"
                   className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all"
                 />
               </div>

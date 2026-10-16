@@ -49,60 +49,81 @@ export const ChambresPage = () => {
           ) : rooms.length === 0 ? (
             <div className="text-center py-20 text-gray-400">Aucun appartement disponible pour le moment.</div>
           ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {rooms.map((room) => (
               <div
                 key={room.id}
-                className="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 group animate-fade-in"
+                className="bg-white rounded-2xl md:rounded-3xl overflow-hidden border border-gray-100 hover:border-primary-200 hover:-translate-y-0.5 transition-all duration-300 group animate-fade-in flex flex-col sm:flex-row shadow-sm"
               >
-                {/* Image cliquable */}
-                <Link to={`/chambres/${room.id}`} className="block relative aspect-[16/10] overflow-hidden">
-                  <img
-                    src={room.imagePrincipale || room.images[0] || ''}
-                    alt={room.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-                    loading="lazy"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                  <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-md px-4 py-2 rounded-full font-bold text-primary-900 shadow-md text-sm">
-                    {room.priceNight.toLocaleString()} FCFA <span className="font-normal text-gray-500">/ nuitée</span>
-                  </div>
-                  <div className="absolute top-4 right-4 bg-primary-600 text-white px-3 py-1.5 rounded-full text-xs font-medium shadow-md">
-                    {room.count} disponibles
-                  </div>
-                </Link>
-
-                {/* Content */}
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-3">
-                    <Link to={`/chambres/${room.id}`} className="text-xl md:text-2xl font-heading font-bold text-gray-900 hover:text-primary-600 transition-colors">{room.name}</Link>
-                    <div className="flex items-center gap-1.5 text-gray-500 text-sm shrink-0 ml-4 bg-primary-50 px-3 py-1 rounded-full">
-                      <Users size={14} className="text-primary-500" />
+                {/* Colonne Gauche : Image */}
+                <div className="w-full sm:w-[44%] md:w-[45%] flex flex-col bg-gray-50 shrink-0">
+                  <Link to={`/chambres/${room.id}`} className="relative h-48 sm:h-full min-h-[180px] sm:min-h-[220px] overflow-hidden block">
+                    <img
+                      src={room.imagePrincipale || room.images[0] || ''}
+                      alt={room.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                      loading="lazy"
+                    />
+                    <div className="absolute top-3 left-3 bg-white/95 backdrop-blur-md px-3 py-1 rounded-full font-bold text-primary-900 border border-gray-200/50 text-xs shadow-xs">
+                      {room.priceNight.toLocaleString()} FCFA <span className="font-normal text-gray-500">/ nuit</span>
+                    </div>
+                    <div className="absolute top-3 right-3 bg-primary-600 text-white px-2.5 py-1 rounded-full text-[11px] font-medium shadow-xs">
                       {room.capacity}
+                    </div>
+                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                      <span className="bg-white text-primary-700 font-medium px-3.5 py-1.5 rounded-full text-xs shadow-sm">Voir les détails</span>
+                    </div>
+                  </Link>
+
+                  {/* Miniatures si multiples */}
+                  {room.images && room.images.length > 1 && (
+                    <div className="flex gap-1.5 p-2 bg-gray-50 border-t border-gray-100 overflow-x-auto scrollbar-hide">
+                      {room.images.slice(0, 4).map((img, i) => (
+                        <div key={i} className="w-9 h-9 rounded-md overflow-hidden shrink-0 border border-transparent opacity-75">
+                          <img src={img} alt="" className="w-full h-full object-cover" loading="lazy" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Colonne Droite : Content */}
+                <div className="p-5 sm:p-5 flex-1 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <Link to={`/chambres/${room.id}`} className="text-lg sm:text-xl font-heading font-bold text-gray-900 hover:text-primary-600 transition-colors leading-snug">
+                        {room.name}
+                      </Link>
+                    </div>
+
+                    <p className="text-gray-500 text-xs sm:text-sm leading-relaxed mb-3 line-clamp-2">{room.description}</p>
+
+                    <div className="mb-3">
+                      <h4 className="text-[10px] font-bold text-primary-900 uppercase tracking-wider mb-2">
+                        Équipements Inclus
+                      </h4>
+                      <ul className="grid grid-cols-2 gap-y-1.5 gap-x-3 text-xs text-gray-600">
+                        {room.amenities.slice(0, 4).map((a, i) => (
+                          <li key={i} className="flex items-center gap-1.5 truncate">
+                            <CheckCircle2 size={12} className="text-primary-500 shrink-0" />
+                            <span className="truncate">{a}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   </div>
 
-                  <p className="text-gray-500 leading-relaxed mb-5 text-sm">{room.description}</p>
-
-                  <ul className="grid grid-cols-2 gap-y-2 mb-6">
-                    {room.amenities.slice(0, 6).map((a, i) => (
-                      <li key={i} className="flex items-center gap-2 text-sm text-gray-600">
-                        <CheckCircle2 size={13} className="text-primary-500 shrink-0" />
-                        {a}
-                      </li>
-                    ))}
-                  </ul>
-
-                  <div className="flex gap-3 pt-4 border-t border-gray-100">
+                  <div className="flex items-center gap-2 pt-3 border-t border-gray-100 mt-auto">
                     <Link
                       to={`/chambres/${room.id}`}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-gray-200 text-gray-700 hover:border-primary-500 hover:text-primary-600 font-medium text-sm transition-all"
+                      className="flex items-center justify-center gap-1 px-3 py-2 rounded-xl border border-gray-200 text-gray-700 hover:border-primary-500 hover:text-primary-600 font-medium text-xs sm:text-sm transition-all whitespace-nowrap"
                     >
-                      Voir les détails <ArrowRight size={15} />
+                      <span>Voir les détails</span>
+                      <ArrowRight size={14} />
                     </Link>
                     <button
                       onClick={() => openModal(room.id)}
-                      className="flex-1 bg-primary-600 hover:bg-primary-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-all shadow-md shadow-primary-900/20 hover:scale-105 transform"
+                      className="flex-1 bg-primary-600 hover:bg-primary-700 active:scale-95 text-white px-3 py-2 rounded-xl font-medium text-xs sm:text-sm transition-all text-center shadow-xs"
                     >
                       Réserver
                     </button>

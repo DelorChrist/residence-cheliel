@@ -2,7 +2,7 @@ const MESSAGE = encodeURIComponent('Bonjour, je souhaite rÃ©server une chambre Ã
 
 export const WhatsAppButton = () => (
   <a
-    href={`https://wa.me/2250779277924?text=${MESSAGE}`}
+    href={`https://wa.me/2250706601220?text=${MESSAGE}`}
     target="_blank"
     rel="noopener noreferrer"
     aria-label="Contacter via WhatsApp"

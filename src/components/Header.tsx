@@ -29,8 +29,8 @@ export const Header = ({ onReserve }: HeaderProps) => {
   const opaque = forceOpaque || isScrolled;
 
   useEffect(() => {
-    const handleScroll = () => setIsScrolled(window.scrollY > 50);
-    window.addEventListener('scroll', handleScroll);
+    const handleScroll = () => setIsScrolled(window.scrollY > 25);
+    window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
@@ -112,50 +112,100 @@ export const Header = ({ onReserve }: HeaderProps) => {
     }`;
 
   return (
-    <nav className={`fixed w-full z-50 transition-all duration-300 ${opaque ? 'bg-white shadow-md py-3' : 'bg-transparent py-5'}`}>
-      <div className="w-full px-6 flex justify-between items-center">
-        <Link to="/" className="flex items-center gap-2 shrink-0" onClick={() => setActiveNav('accueil')}>
-          <img src="/images/logo.png" alt="Logo" className="w-11 h-11 rounded-xl object-cover shadow-md" />
-          <div className={`font-heading font-bold text-2xl tracking-tight ${opaque ? 'text-primary-900' : 'text-white'}`}>Résidence Cheliel</div>
-        </Link>
+    <header
+      className={`fixed z-50 transition-all duration-300 ease-in-out ${
+        isScrolled
+          ? 'top-2.5 inset-x-3.5 md:top-0 md:inset-x-0'
+          : 'top-0 inset-x-0'
+      }`}
+    >
+      <nav
+        className={`w-full transition-all duration-300 ease-in-out ${
+          isScrolled
+            ? 'bg-white/95 backdrop-blur-md shadow-[0_8px_25px_-6px_rgba(0,0,0,0.12)] border border-black/5 rounded-2xl md:rounded-none md:border-none md:shadow-md md:bg-white py-2 px-3.5 md:py-3 md:px-6'
+            : opaque
+            ? 'bg-white shadow-md py-3.5 px-5 md:py-3 md:px-6 rounded-none'
+            : 'bg-transparent py-4 px-5 md:py-5 md:px-6 rounded-none'
+        }`}
+      >
+        <div className="w-full flex justify-between items-center">
+          <Link to="/" className="flex items-center gap-2 shrink-0" onClick={() => setActiveNav('accueil')}>
+            <img
+              src="/images/logo.png"
+              alt="Logo"
+              className={`object-cover border border-black/5 shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-all duration-300 ${
+                isScrolled
+                  ? 'w-8 h-8 rounded-lg md:w-11 md:h-11 md:rounded-xl'
+                  : 'w-10 h-10 md:w-11 md:h-11 rounded-xl'
+              }`}
+            />
+            <div
+              className={`font-heading font-bold tracking-tight transition-all duration-300 ${
+                isScrolled
+                  ? 'text-lg md:text-2xl text-primary-900'
+                  : opaque
+                  ? 'text-xl md:text-2xl text-primary-900'
+                  : 'text-xl md:text-2xl text-white'
+              }`}
+            >
+              Résidence Cheliel
+            </div>
+          </Link>
 
-        {/* Desktop Nav */}
-        <div className="hidden md:flex items-center gap-5 ml-auto">
-          <a href="#accueil" onClick={handleAccueil} className={desktopClass('accueil')}>Accueil</a>
-          <a href="#chambres" onClick={handleChambres} className={desktopClass('chambres')}>Nos Chambres</a>
-          <Link to="/a-propos" onClick={() => setActiveNav('a-propos')} className={desktopClass('a-propos')}>À Propos</Link>
-          <Link to="/mes-reservations" onClick={() => setActiveNav('mes-reservations')} className={desktopClass('mes-reservations')}>Mes Réservations</Link>
-          <a href="#footer" onClick={handleContact} className={desktopClass('contact')}>Nous Contacter</a>
+          {/* Desktop Nav */}
+          <div className="hidden md:flex items-center gap-5 ml-auto">
+            <a href="#accueil" onClick={handleAccueil} className={desktopClass('accueil')}>Accueil</a>
+            <a href="#chambres" onClick={handleChambres} className={desktopClass('chambres')}>Nos Chambres</a>
+            <Link to="/a-propos" onClick={() => setActiveNav('a-propos')} className={desktopClass('a-propos')}>À Propos</Link>
+            <Link to="/mes-reservations" onClick={() => setActiveNav('mes-reservations')} className={desktopClass('mes-reservations')}>Mes Réservations</Link>
+            <a href="#footer" onClick={handleContact} className={desktopClass('contact')}>Nous Contacter</a>
+            <button
+              onClick={onReserve}
+              className="ml-2 bg-primary-600 hover:bg-primary-700 text-white px-6 py-2.5 rounded-full font-medium transition-colors shadow-sm shrink-0"
+            >
+              Réserver
+            </button>
+          </div>
+
+          {/* Mobile Toggle */}
           <button
-            onClick={onReserve}
-            className="ml-2 bg-primary-600 hover:bg-primary-700 text-white px-6 py-2.5 rounded-full font-medium transition-colors shadow-lg shadow-primary-900/20 shrink-0"
+            className={`md:hidden transition-all duration-300 flex items-center justify-center ${
+              isScrolled
+                ? 'p-1.5 rounded-lg text-primary-900 hover:bg-black/5'
+                : opaque
+                ? 'p-2 rounded-lg text-primary-900 bg-white/80'
+                : 'p-2 rounded-lg text-white bg-black/20 backdrop-blur-sm'
+            }`}
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Menu principal"
           >
-            Réserver
+            {mobileMenuOpen ? <X size={isScrolled ? 20 : 24} /> : <Menu size={isScrolled ? 20 : 24} />}
           </button>
         </div>
 
-        {/* Mobile Toggle */}
-        <button className="md:hidden text-primary-900 bg-white/80 p-2 rounded-lg" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-          {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-        </button>
-      </div>
-
-      {/* Mobile Nav */}
-      {mobileMenuOpen && (
-        <div className="md:hidden absolute top-full left-0 w-full bg-white shadow-lg border-t border-gray-100 py-4 flex flex-col px-6 gap-4">
-          <a href="#accueil" onClick={handleAccueil} className={mobileClass('accueil')}>Accueil</a>
-          <a href="#chambres" onClick={handleChambres} className={mobileClass('chambres')}>Nos Chambres</a>
-          <Link to="/a-propos" onClick={() => { setActiveNav('a-propos'); setMobileMenuOpen(false); }} className={mobileClass('a-propos')}>À Propos</Link>
-          <Link to="/mes-reservations" onClick={() => { setActiveNav('mes-reservations'); setMobileMenuOpen(false); }} className={mobileClass('mes-reservations')}>Mes Réservations</Link>
-          <a href="#footer" onClick={handleContact} className={mobileClass('contact')}>Nous Contacter</a>
-          <button
-            onClick={() => { onReserve(); setMobileMenuOpen(false); }}
-            className="bg-primary-600 text-white px-6 py-3 rounded-xl font-medium w-full mt-2"
+        {/* Mobile Nav */}
+        {mobileMenuOpen && (
+          <div
+            className={`md:hidden absolute w-full transition-all duration-300 flex flex-col ${
+              isScrolled
+                ? 'top-[calc(100%+8px)] left-0 bg-white/98 backdrop-blur-md rounded-2xl shadow-xl border border-gray-100/90 py-4 px-5 gap-3'
+                : 'top-full left-0 bg-white shadow-lg border-t border-gray-100 py-4 px-6 gap-4'
+            }`}
           >
-            Réserver
-          </button>
-        </div>
-      )}
-    </nav>
+            <a href="#accueil" onClick={handleAccueil} className={mobileClass('accueil')}>Accueil</a>
+            <a href="#chambres" onClick={handleChambres} className={mobileClass('chambres')}>Nos Chambres</a>
+            <Link to="/a-propos" onClick={() => { setActiveNav('a-propos'); setMobileMenuOpen(false); }} className={mobileClass('a-propos')}>À Propos</Link>
+            <Link to="/mes-reservations" onClick={() => { setActiveNav('mes-reservations'); setMobileMenuOpen(false); }} className={mobileClass('mes-reservations')}>Mes Réservations</Link>
+            <a href="#footer" onClick={handleContact} className={mobileClass('contact')}>Nous Contacter</a>
+            <button
+              onClick={() => { onReserve(); setMobileMenuOpen(false); }}
+              className="bg-primary-600 hover:bg-primary-700 text-white px-6 py-3 rounded-xl font-medium w-full mt-2 transition-colors shadow-sm"
+            >
+              Réserver
+            </button>
+          </div>
+        )}
+      </nav>
+    </header>
   );
 };
