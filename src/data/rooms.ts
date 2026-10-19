@@ -11,6 +11,7 @@ export interface Room {
   imagePrincipale: string;
   images: string[];
   videoUrl?: string;
+  videoUrls?: string[];
 }
 
 // Données statiques vides — toutes les chambres sont gérées depuis l'espace admin

@@ -130,6 +130,20 @@ export default defineConfig({
               },
             },
           },
+          {
+            urlPattern: /\/uploads\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "uploaded-media-cache",
+              expiration: {
+                maxEntries: 120,
+                maxAgeSeconds: 60 * 60 * 24 * 90,
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
         ],
       },
       devOptions: {

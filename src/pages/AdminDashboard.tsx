@@ -392,7 +392,7 @@ const OverviewTab = ({ reservations, conflictIds, rooms, onTabChange, headerActi
 
   return (
     <div>
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="sticky -top-6 lg:-top-10 z-20 bg-[#faf9f8]/95 backdrop-blur-md -mx-6 lg:-mx-10 px-6 lg:px-10 py-4 mb-6 border-b border-gray-200/70 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Vue d'ensemble</h1>
           <p className="text-gray-500">Bienvenue dans votre espace de gestion.</p>
@@ -601,7 +601,7 @@ const ReservationsTab = ({ reservations, conflictIds, rooms, updateStatus, delet
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="sticky -top-6 lg:-top-10 z-20 bg-[#faf9f8]/95 backdrop-blur-md -mx-6 lg:-mx-10 px-6 lg:px-10 py-4 mb-6 border-b border-gray-200/70 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Réservations</h1>
           <p className="text-gray-500">{reservations.length} réservation{reservations.length > 1 ? 's' : ''} au total
@@ -881,7 +881,7 @@ const PlanningTab = ({ reservations, conflictIds, rooms, headerActions }: { rese
 
   return (
     <div>
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="sticky -top-6 lg:-top-10 z-20 bg-[#faf9f8]/95 backdrop-blur-md -mx-6 lg:-mx-10 px-6 lg:px-10 py-4 mb-6 border-b border-gray-200/70 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Planning</h1>
           <p className="text-gray-500 capitalize">{monthLabel}</p>
@@ -1024,7 +1024,7 @@ const ClientsTab = ({ reservations, rooms, headerActions }: { reservations: Rese
 
   return (
     <div>
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="sticky -top-6 lg:-top-10 z-20 bg-[#faf9f8]/95 backdrop-blur-md -mx-6 lg:-mx-10 px-6 lg:px-10 py-4 mb-6 border-b border-gray-200/70 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Clients</h1>
           <p className="text-gray-500">{clients.length} client{clients.length > 1 ? 's' : ''} enregistré{clients.length > 1 ? 's' : ''}</p>
@@ -1098,6 +1098,7 @@ interface RoomRow {
   image_principale: string;
   images: string[];
   video_url?: string;
+  video_urls?: string[];
 }
 
 const emptyRoom = (): Omit<RoomRow, 'id'> => ({
@@ -1105,9 +1106,10 @@ const emptyRoom = (): Omit<RoomRow, 'id'> => ({
   description: '', long_description: '', amenities: [],
   image_principale: '', images: [],
   video_url: '',
+  video_urls: [],
 });
 
-/** Galerie d'images avec image principale + images complémentaires */
+/** Galerie d'images avec séparation nette : photos de cet appartement vs bibliothèque serveur */
 const ImagePickerWithMain = ({
   mainImage,
   extraImages,
@@ -1123,7 +1125,8 @@ const ImagePickerWithMain = ({
   const [uploading, setUploading] = useState(false);
   const [loadingGallery, setLoadingGallery] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<'main' | 'extra'>('main');
+  const [showGallery, setShowGallery] = useState(false);
+  const [gallerySearch, setGallerySearch] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const fetchGallery = useCallback(async () => {
@@ -1156,8 +1159,12 @@ const ImagePickerWithMain = ({
     }
     await fetchGallery();
     if (uploadedUrls.length) {
-      if (mode === 'main') {
+      // Assigner directement les photos téléversées à cet appartement
+      if (!mainImage) {
         onChangeMain(uploadedUrls[0]);
+        if (uploadedUrls.length > 1) {
+          onChangeExtra([...extraImages, ...uploadedUrls.slice(1)]);
+        }
       } else {
         onChangeExtra([...extraImages, ...uploadedUrls]);
       }
@@ -1176,128 +1183,256 @@ const ImagePickerWithMain = ({
     await fetchGallery();
   };
 
-  const handleSelect = (url: string) => {
-    if (mode === 'main') {
+  const toggleGallerySelect = (url: string) => {
+    if (mainImage === url) {
+      onChangeMain('');
+    } else if (extraImages.includes(url)) {
+      onChangeExtra(extraImages.filter(u => u !== url));
+    } else if (!mainImage) {
       onChangeMain(url);
     } else {
-      if (extraImages.includes(url)) {
-        onChangeExtra(extraImages.filter(u => u !== url));
-      } else {
-        onChangeExtra([...extraImages, url]);
-      }
+      onChangeExtra([...extraImages, url]);
     }
   };
 
-  const isSelected = (url: string) => mode === 'main' ? mainImage === url : extraImages.includes(url);
+  const setAsMain = (url: string) => {
+    const prevMain = mainImage;
+    onChangeMain(url);
+    const filteredExtra = extraImages.filter(u => u !== url);
+    if (prevMain && prevMain !== url) {
+      onChangeExtra([prevMain, ...filteredExtra]);
+    } else {
+      onChangeExtra(filteredExtra);
+    }
+  };
+
+  const removePhoto = (url: string) => {
+    if (mainImage === url) onChangeMain('');
+    onChangeExtra(extraImages.filter(u => u !== url));
+  };
+
+  const clearAllPhotos = () => {
+    onChangeMain('');
+    onChangeExtra([]);
+  };
+
+  const totalSelected = (mainImage ? 1 : 0) + extraImages.length;
+  const filteredGallery = gallery.filter(img =>
+    !gallerySearch.trim() || img.name?.toLowerCase().includes(gallerySearch.toLowerCase()) || img.url.toLowerCase().includes(gallerySearch.toLowerCase())
+  );
 
   return (
     <div className="space-y-4">
-      {/* Onglets mode sélection */}
-      <div className="flex gap-2">
-        <button type="button" onClick={() => setMode('main')}
-          className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${mode === 'main' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-          Image principale
-        </button>
-        <button type="button" onClick={() => setMode('extra')}
-          className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${mode === 'extra' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-          Images complémentaires ({extraImages.length})
-        </button>
-      </div>
+      {/* 1. SECTION : Photos rattachées à cet appartement */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-xs">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-xs uppercase tracking-wider text-gray-700">
+              Photos associées ({totalSelected})
+            </span>
+            {totalSelected > 0 && (
+              <span className="text-[11px] bg-primary-100 text-primary-800 font-medium px-2 py-0.5 rounded-full">
+                {mainImage ? '1 principale' : '0 principale'} · {extraImages.length} complémentaire{extraImages.length > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          {totalSelected > 0 && (
+            <button
+              type="button"
+              onClick={clearAllPhotos}
+              className="text-xs text-red-600 hover:text-red-700 font-medium px-2.5 py-1 rounded-lg hover:bg-red-50 flex items-center gap-1 transition-colors"
+              title="Retirer toutes les photos de cet appartement"
+            >
+              <Trash2 size={13} /> Tout vider
+            </button>
+          )}
+        </div>
 
-      <p className="text-xs text-gray-500">
-        {mode === 'main'
-          ? 'Cliquez sur une image pour la définir comme image principale (affichée en premier).'
-          : 'Cliquez sur les images pour les ajouter/retirer des images complémentaires.'}
-      </p>
-
-      {/* Upload */}
-      <div className="border-2 border-dashed border-gray-200 rounded-2xl p-4 text-center hover:border-primary-400 transition-colors cursor-pointer"
-        onClick={() => inputRef.current?.click()}>
-        <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleUpload} aria-label="Uploader des images" />
-        {uploading ? (
-          <div className="flex items-center justify-center gap-2 text-primary-600 text-sm">
-            <div className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" /> Upload en cours...
+        {totalSelected === 0 ? (
+          <div className="border border-dashed border-gray-200 bg-gray-50/70 rounded-xl p-4 text-center">
+            <p className="text-xs text-gray-500">
+              Aucune photo n'est encore sélectionnée pour cet appartement.
+            </p>
+            <p className="text-[11px] text-gray-400 mt-1">
+              Uploadez des photos ci-dessous ou piochez dans votre bibliothèque existante.
+            </p>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-1 text-gray-400">
-            <Upload size={20} />
-            <span className="text-sm font-medium">Uploader des images</span>
-            <span className="text-xs">JPG, PNG, WEBP</span>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+            {/* Image principale */}
+            {mainImage && (
+              <div className="relative group aspect-square rounded-xl overflow-hidden border-2 border-yellow-400 shadow-xs">
+                <img src={mainImage} alt="Principale" className="w-full h-full object-cover" />
+                <div className="absolute top-1 left-1 bg-yellow-400 text-yellow-950 font-bold text-[9px] px-1.5 py-0.5 rounded-md shadow">
+                  ★ PRINCIPALE
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onChangeMain('')}
+                  aria-label="Retirer l'image principale"
+                  className="absolute top-1 right-1 w-6 h-6 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow transition-opacity"
+                  title="Retirer cette photo"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            )}
+
+            {/* Images complémentaires */}
+            {extraImages.map((url, i) => (
+              <div key={`${url}-${i}`} className="relative group aspect-square rounded-xl overflow-hidden border border-gray-200 shadow-xs">
+                <img src={url} alt={`Extra ${i + 1}`} className="w-full h-full object-cover" />
+                <div className="absolute top-1 left-1 bg-black/60 text-white font-medium text-[9px] px-1.5 py-0.5 rounded-md backdrop-blur-xs">
+                  #{i + 2}
+                </div>
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setAsMain(url)}
+                    className="bg-yellow-400 hover:bg-yellow-300 text-yellow-950 text-[10px] font-bold px-2 py-1 rounded-md shadow"
+                    title="Définir comme photo principale"
+                  >
+                    Définir principale
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(url)}
+                    className="bg-red-600 hover:bg-red-700 text-white text-[10px] font-semibold px-2 py-0.5 rounded-md shadow"
+                  >
+                    Retirer
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Galerie */}
-      {loadingGallery ? (
-        <div className="flex justify-center py-4"><div className="w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" /></div>
-      ) : gallery.length === 0 ? (
-        <div className="text-center py-6 text-gray-400 text-sm">
-          <ImageIcon size={28} className="mx-auto mb-2 opacity-30" />
-          Aucune image. Uploadez-en pour commencer.
-        </div>
-      ) : (
-        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-56 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pr-1">
-          {gallery.map(img => {
-            const sel = isSelected(img.url);
-            const isMain = mainImage === img.url;
-            return (
-              <div key={img.id}
-                className={`relative group aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all ${
-                  isMain ? 'border-yellow-400' : sel ? 'border-primary-500' : 'border-transparent'
-                }`}
-                onClick={() => handleSelect(img.url)}
-              >
-                <img src={img.url} alt={img.name} className="w-full h-full object-cover" />
-                {isMain && (
-                  <div className="absolute inset-0 bg-yellow-400/20 flex items-center justify-center">
-                    <span className="bg-yellow-400 text-yellow-900 text-[10px] font-bold px-1.5 py-0.5 rounded-full">PRINCIPALE</span>
-                  </div>
-                )}
-                {sel && !isMain && (
-                  <div className="absolute inset-0 bg-primary-600/20 flex items-center justify-center">
-                    <CheckCircle2 size={20} className="text-white drop-shadow" />
-                  </div>
-                )}
-                <button type="button" aria-label="Supprimer de la galerie"
-                  onClick={e => { e.stopPropagation(); handleDeleteFromGallery(img.id, img.url); }}
-                  className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow">
-                  <X size={12} />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {error && <p className="text-sm text-red-600">{error}</p>}
-
-      {/* Résumé sélection */}
-      <div className="space-y-2">
-        {mainImage && (
-          <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-100 rounded-xl px-3 py-2">
-            <img src={mainImage} alt="principale" className="w-10 h-10 rounded-lg object-cover shrink-0 border border-yellow-200" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-yellow-800">Image principale</p>
-              <p className="text-xs text-yellow-600 truncate">{mainImage.split('/').pop()}</p>
-            </div>
-            <button type="button" aria-label="Retirer l'image principale" onClick={() => onChangeMain('')} className="text-yellow-500 hover:text-red-500 shrink-0"><X size={14} /></button>
+      {/* 2. SECTION : Téléverser des photos directement pour cet appartement */}
+      <div
+        className="border-2 border-dashed border-gray-200 hover:border-primary-400 rounded-2xl p-4 text-center cursor-pointer bg-white transition-colors"
+        onClick={() => inputRef.current?.click()}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={handleUpload}
+          disabled={uploading}
+          aria-label="Uploader des images"
+        />
+        {uploading ? (
+          <div className="flex flex-col items-center gap-2 py-2">
+            <div className="w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs font-medium text-primary-700">Optimisation et téléversement en cours...</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-1 text-gray-500 py-1">
+            <Upload size={20} className="text-primary-600" />
+            <span className="text-xs font-semibold text-gray-800">
+              Téléverser de nouvelles photos pour cet appartement
+            </span>
+            <span className="text-[11px] text-gray-400">
+              Glisser-déposer ou cliquer (JPG, PNG, WEBP - compression automatique)
+            </span>
           </div>
         )}
-        {extraImages.length > 0 && (
-          <div className="bg-primary-50 border border-primary-100 rounded-xl px-3 py-2">
-            <p className="text-xs font-semibold text-primary-800 mb-2">{extraImages.length} image{extraImages.length > 1 ? 's' : ''} complémentaire{extraImages.length > 1 ? 's' : ''}</p>
-            <div className="flex gap-1.5 flex-wrap">
-              {extraImages.map((url, i) => (
-                <div key={url} className="relative w-10 h-10 rounded-lg overflow-hidden border border-primary-200 shrink-0 group">
-                  <img src={url} alt={`extra ${i + 1}`} className="w-full h-full object-cover" />
-                  <button type="button" aria-label="Retirer cette image"
-                    onClick={() => onChangeExtra(extraImages.filter(u => u !== url))}
-                    className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <X size={12} className="text-white" />
-                  </button>
-                </div>
-              ))}
-            </div>
+      </div>
+
+      {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
+
+      {/* 3. SECTION : Bibliothèque générale existante sur le serveur */}
+      <div className="border border-gray-200 rounded-2xl p-3.5 bg-gray-50/50">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setShowGallery(!showGallery)}
+            className="flex items-center gap-2 text-xs font-semibold text-gray-700 hover:text-primary-700 transition-colors"
+          >
+            <ImageIcon size={15} className="text-primary-600" />
+            <span>Bibliothèque d'images sur le serveur ({gallery.length})</span>
+            <span className="text-[11px] font-normal text-gray-400">
+              {showGallery ? '▲ Masquer' : '▼ Afficher pour choisir ou gérer'}
+            </span>
+          </button>
+        </div>
+
+        {showGallery && (
+          <div className="mt-3 pt-3 border-t border-gray-200/70 space-y-3">
+            <p className="text-[11px] text-gray-500">
+              Cliquez sur une image pour l'ajouter ou la retirer de cet appartement. La corbeille supprime définitivement l'image du serveur.
+            </p>
+
+            {gallery.length > 8 && (
+              <input
+                type="text"
+                placeholder="Filtrer par nom de fichier..."
+                value={gallerySearch}
+                onChange={e => setGallerySearch(e.target.value)}
+                className="w-full px-3 py-1.5 text-xs border border-gray-200 rounded-xl bg-white outline-none focus:border-primary-500"
+              />
+            )}
+
+            {loadingGallery ? (
+              <div className="flex justify-center py-4">
+                <div className="w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : filteredGallery.length === 0 ? (
+              <div className="text-center py-4 text-gray-400 text-xs">
+                Aucune image trouvée dans la bibliothèque.
+              </div>
+            ) : (
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-48 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pr-1">
+                {filteredGallery.map(img => {
+                  const isMain = mainImage === img.url;
+                  const isExtra = extraImages.includes(img.url);
+                  const isAssigned = isMain || isExtra;
+
+                  return (
+                    <div
+                      key={img.id}
+                      className={`relative group aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all ${
+                        isMain
+                          ? 'border-yellow-400 ring-2 ring-yellow-400/40'
+                          : isAssigned
+                          ? 'border-primary-500 ring-2 ring-primary-500/30'
+                          : 'border-transparent hover:border-gray-300'
+                      }`}
+                      onClick={() => toggleGallerySelect(img.url)}
+                      title={isAssigned ? 'Cliquez pour retirer' : 'Cliquez pour ajouter à cet appartement'}
+                    >
+                      <img src={img.url} alt={img.name} className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                      {isMain && (
+                        <div className="absolute inset-0 bg-yellow-500/25 flex items-center justify-center">
+                          <span className="bg-yellow-400 text-yellow-950 font-bold text-[8px] px-1 py-0.5 rounded shadow">★</span>
+                        </div>
+                      )}
+                      {isExtra && (
+                        <div className="absolute inset-0 bg-primary-600/25 flex items-center justify-center">
+                          <CheckCircle2 size={16} className="text-white drop-shadow" />
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        aria-label="Supprimer définitivement de la bibliothèque"
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (window.confirm(`Supprimer définitivement "${img.name || 'cette image'}" du serveur ?`)) {
+                            handleDeleteFromGallery(img.id, img.url);
+                          }
+                        }}
+                        className="absolute top-1 right-1 w-5 h-5 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow"
+                        title="Supprimer définitivement du serveur"
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1305,13 +1440,13 @@ const ImagePickerWithMain = ({
   );
 };
 
-/** Sélecteur et uploader de vidéo de présentation */
-const VideoPicker = ({
-  videoUrl,
+/** Sélecteur et gestionnaire de vidéos de présentation multiples */
+const MultiVideoPicker = ({
+  videoUrls,
   onChange,
 }: {
-  videoUrl: string;
-  onChange: (url: string) => void;
+  videoUrls: string[];
+  onChange: (urls: string[]) => void;
 }) => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1335,7 +1470,7 @@ const VideoPicker = ({
       if (upErr || !data?.url) {
         setError(upErr?.message || 'Erreur lors de l’upload de la vidéo.');
       } else {
-        onChange(data.url);
+        onChange([...videoUrls, data.url]);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Impossible d’uploader la vidéo.';
@@ -1346,122 +1481,144 @@ const VideoPicker = ({
     }
   };
 
-  const handleSetUrl = () => {
+  const handleAddUrl = () => {
     if (customUrl.trim()) {
-      onChange(customUrl.trim());
+      onChange([...videoUrls, customUrl.trim()]);
       setCustomUrl('');
       setShowUrlInput(false);
       setError(null);
     }
   };
 
+  const handleRemove = (index: number) => {
+    onChange(videoUrls.filter((_, idx) => idx !== index));
+  };
+
   return (
     <div className="space-y-3">
-      {videoUrl ? (
-        <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 overflow-hidden">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="w-8 h-8 rounded-xl bg-primary-100 text-primary-700 flex items-center justify-center shrink-0">
-                <Video size={16} />
-              </span>
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-gray-900">Vidéo de présentation configurée</p>
-                <p className="text-[11px] text-gray-500 truncate max-w-xs">{videoUrl}</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => onChange('')}
-              className="text-xs text-red-600 hover:text-red-700 font-medium px-2.5 py-1.5 rounded-lg hover:bg-red-50 flex items-center gap-1 transition-colors shrink-0"
-            >
-              <Trash2 size={13} /> Retirer
-            </button>
-          </div>
-
-          {/* Lecteur vidéo intégré de test */}
-          <div className="relative aspect-video rounded-xl overflow-hidden bg-black shadow-inner">
-            <video
-              key={videoUrl}
-              src={videoUrl}
-              controls
-              playsInline
-              preload="metadata"
-              className="w-full h-full object-contain"
-            >
-              Votre navigateur ne supporte pas la lecture vidéo.
-            </video>
-          </div>
-        </div>
-      ) : (
-        <div className="border-2 border-dashed border-gray-200 rounded-2xl p-5 text-center hover:border-primary-400 transition-colors bg-white">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="video/*,.mp4,.webm,.mov"
-            className="hidden"
-            onChange={handleFileUpload}
-            disabled={uploading}
-            aria-label="Choisir une vidéo de présentation"
-          />
-
-          {uploading ? (
-            <div className="flex flex-col items-center gap-2 py-4">
-              <div className="w-7 h-7 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
-              <p className="text-sm font-medium text-gray-700">Téléversement de la vidéo en cours...</p>
-              <p className="text-xs text-gray-400">Veuillez patienter pendant le transfert (max 120 Mo)</p>
-            </div>
-          ) : (
-            <div>
-              <div className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-primary-50 text-primary-600 flex items-center justify-center">
-                <Video size={24} />
-              </div>
-              <p className="text-sm font-semibold text-gray-800">Ajouter une vidéo de présentation</p>
-              <p className="text-xs text-gray-500 mt-1 mb-4">
-                Visite guidée de l'appartement (MP4, WebM, MOV jusqu'à 120 Mo) ou URL
-              </p>
-
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-sm transition-colors"
-                >
-                  <Upload size={14} /> Téléverser une vidéo
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowUrlInput(!showUrlInput)}
-                  className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-xl transition-colors"
-                >
-                  {showUrlInput ? 'Annuler saisie URL' : 'Saisir une URL'}
-                </button>
-              </div>
-
-              {showUrlInput && (
-                <div className="mt-3 pt-3 border-t border-gray-100 flex gap-2">
-                  <input
-                    type="text"
-                    value={customUrl}
-                    onChange={e => setCustomUrl(e.target.value)}
-                    placeholder="Ex: /images/chambre_1/video.mp4 ou https://..."
-                    className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-xl focus:border-primary-500 focus:ring-1 focus:ring-primary-500 outline-none"
-                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleSetUrl())}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSetUrl}
-                    className="px-4 py-2 bg-primary-600 text-white rounded-xl text-xs font-medium hover:bg-primary-700"
-                  >
-                    Valider
-                  </button>
+      {/* Liste des vidéos configurées */}
+      {videoUrls.length > 0 && (
+        <div className="space-y-3">
+          {videoUrls.map((url, index) => (
+            <div key={`${url}-${index}`} className="bg-gray-50 border border-gray-200 rounded-2xl p-3.5 overflow-hidden">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-7 h-7 rounded-lg bg-primary-100 text-primary-700 flex items-center justify-center shrink-0 font-bold text-xs">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-gray-900">
+                      {index === 0 ? 'Vidéo 1 (Principale)' : `Vidéo ${index + 1}`}
+                    </p>
+                    <p className="text-[11px] text-gray-500 truncate max-w-xs">{url}</p>
+                  </div>
                 </div>
-              )}
-            </div>
-          )}
+                <button
+                  type="button"
+                  onClick={() => handleRemove(index)}
+                  className="text-xs text-red-600 hover:text-red-700 font-medium px-2 py-1 rounded-lg hover:bg-red-50 flex items-center gap-1 transition-colors shrink-0"
+                >
+                  <Trash2 size={13} /> Retirer
+                </button>
+              </div>
 
-          {error && <p className="text-xs text-red-600 mt-2 font-medium">{error}</p>}
+              {/* Lecteur vidéo intégré */}
+              <div className="relative aspect-video rounded-xl overflow-hidden bg-black shadow-inner max-h-48">
+                {url.includes('youtube.com') || url.includes('youtu.be') ? (
+                  <iframe
+                    src={url.includes('embed') ? url : `https://www.youtube-nocookie.com/embed/${url.split('v=')[1]?.split('&')[0] || url.split('/').pop()}`}
+                    title={`Vidéo ${index + 1}`}
+                    className="w-full h-full"
+                    allowFullScreen
+                  />
+                ) : (
+                  <video
+                    src={url}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="w-full h-full object-contain"
+                  >
+                    Votre navigateur ne supporte pas la lecture vidéo.
+                  </video>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
+
+      {/* Zone d'ajout vidéo */}
+      <div className="border-2 border-dashed border-gray-200 rounded-2xl p-4 text-center hover:border-primary-400 transition-colors bg-white">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/*,.mp4,.webm,.mov"
+          className="hidden"
+          onChange={handleFileUpload}
+          disabled={uploading}
+          aria-label="Choisir une vidéo de présentation"
+        />
+
+        {uploading ? (
+          <div className="flex flex-col items-center gap-2 py-3">
+            <div className="w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs font-medium text-gray-700">Téléversement de la vidéo en cours...</p>
+            <p className="text-[11px] text-gray-400">Veuillez patienter (max 120 Mo)</p>
+          </div>
+        ) : (
+          <div>
+            <div className="flex items-center justify-center gap-2 mb-2 text-gray-700">
+              <Video size={18} className="text-primary-600" />
+              <span className="text-xs font-semibold">
+                {videoUrls.length > 0 ? 'Ajouter une autre vidéo' : 'Ajouter une vidéo de présentation'}
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-400 mb-3">
+              Fichier (MP4, WebM, MOV jusqu'à 120 Mo) ou URL directe
+            </p>
+
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3.5 py-1.5 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-xs transition-colors"
+              >
+                <Upload size={13} /> Téléverser un fichier
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUrlInput(!showUrlInput)}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-xl transition-colors"
+              >
+                {showUrlInput ? 'Annuler' : 'Ajouter par URL'}
+              </button>
+            </div>
+
+            {showUrlInput && (
+              <div className="mt-3 pt-3 border-t border-gray-100 flex gap-2">
+                <input
+                  type="text"
+                  value={customUrl}
+                  onChange={e => setCustomUrl(e.target.value)}
+                  placeholder="Ex: https://... ou /uploads/video.mp4"
+                  className="flex-1 px-3 py-1.5 text-xs border border-gray-200 rounded-xl focus:border-primary-500 focus:ring-1 focus:ring-primary-500 outline-none"
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddUrl())}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddUrl}
+                  className="px-3 py-1.5 bg-primary-600 text-white rounded-xl text-xs font-medium hover:bg-primary-700"
+                >
+                  Ajouter
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {error && <p className="text-xs text-red-600 mt-2 font-medium">{error}</p>}
     </div>
   );
 };
@@ -1497,6 +1654,9 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
   }, [editing, deleteConfirmId]);
 
   const openEdit = (room: RoomRow) => {
+    const vUrls = Array.isArray(room.video_urls) && room.video_urls.length > 0
+      ? room.video_urls.filter(Boolean)
+      : (room.video_url ? [room.video_url].filter(Boolean) : []);
     setEditing(room);
     setIsNew(false);
     setForm({
@@ -1507,9 +1667,10 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
       description: room.description,
       long_description: room.long_description,
       amenities: [...room.amenities],
-      image_principale: room.image_principale,
+      image_principale: room.image_principale || '',
       images: [...room.images],
-      video_url: room.video_url || '',
+      video_url: vUrls[0] || '',
+      video_urls: vUrls,
     });
   };
 
@@ -1524,11 +1685,16 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
   const handleSave = async () => {
     if (!form.name.trim()) return;
     setSaving(true);
+    const payload = {
+      ...form,
+      video_url: form.video_urls?.[0] || form.video_url || '',
+      video_urls: form.video_urls || [],
+    };
     if (isNew) {
       const id = form.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now();
-      await api.from('rooms').insert({ id, ...form });
+      await api.from('rooms').insert({ id, ...payload });
     } else if (editing) {
-      await api.from('rooms').update(form).eq('id', editing.id);
+      await api.from('rooms').update(payload).eq('id', editing.id);
     }
     await fetchRooms();
     setSaving(false);
@@ -1617,8 +1783,9 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
 
               {/* Images */}
               <div>
-                <label className="text-sm font-semibold text-gray-700 mb-1.5 block">Images</label>
+                <label className="text-sm font-semibold text-gray-700 mb-1.5 block">Photos de l'appartement</label>
                 <ImagePickerWithMain
+                  key={editing ? editing.id || 'new-apartment' : 'closed'}
                   mainImage={form.image_principale}
                   extraImages={form.images}
                   onChangeMain={url => setForm(f => ({ ...f, image_principale: url }))}
@@ -1626,18 +1793,18 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
                 />
               </div>
 
-              {/* Vidéo de présentation */}
+              {/* Vidéos de présentation multiples */}
               <div>
                 <label className="text-sm font-semibold text-gray-700 mb-1.5 flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <Video size={16} className="text-primary-600" />
-                    Vidéo de présentation (visite guidée)
+                    Vidéos de présentation (visites guidées)
                   </span>
                   <span className="text-xs font-normal text-gray-400">Optionnel</span>
                 </label>
-                <VideoPicker
-                  videoUrl={form.video_url || ''}
-                  onChange={url => setForm(f => ({ ...f, video_url: url }))}
+                <MultiVideoPicker
+                  videoUrls={form.video_urls || (form.video_url ? [form.video_url] : [])}
+                  onChange={urls => setForm(f => ({ ...f, video_urls: urls, video_url: urls[0] || '' }))}
                 />
               </div>
             </div>
@@ -1651,7 +1818,7 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="sticky -top-6 lg:-top-10 z-20 bg-[#faf9f8]/95 backdrop-blur-md -mx-6 lg:-mx-10 px-6 lg:px-10 py-4 mb-6 border-b border-gray-200/70 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Appartements</h1>
           <p className="text-gray-500">{rooms.length} appartement{rooms.length > 1 ? 's' : ''}</p>
@@ -1912,7 +2079,7 @@ const AuditTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}) =
 
   return (
     <div>
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="sticky -top-6 lg:-top-10 z-20 bg-[#faf9f8]/95 backdrop-blur-md -mx-6 lg:-mx-10 px-6 lg:px-10 py-4 mb-6 border-b border-gray-200/70 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Journal d'audit</h1>
           <p className="text-gray-500">Traçabilité complète des actions : connexions, modifications et suppressions.</p>

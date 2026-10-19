@@ -34,12 +34,22 @@ export const ChambreDetail = () => {
   // Visionneuse HD : Zoom profond et déplacement (Pan & Zoom)
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [activeVideoIndex, setActiveVideoIndex] = useState(0);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const touchStartRef = useRef<{ x: number; y: number; dist?: number }>({ x: 0, y: 0 });
+
+  // Vidéos calculées de manière sûre (support multi-vidéos et rétro-compatibilité)
+  const videos = useMemo(() => {
+    if (!room) return [];
+    if (Array.isArray(room.videoUrls) && room.videoUrls.length > 0) {
+      return room.videoUrls.filter(Boolean);
+    }
+    return room.videoUrl ? [room.videoUrl].filter(Boolean) : [];
+  }, [room]);
 
   // Images calculées de manière sûre pour tous les rendus
   const allImages = room
@@ -202,7 +212,8 @@ export const ChambreDetail = () => {
 
   if (!room) return <Navigate to="/chambres" replace />;
 
-  const ytEmbed = getYouTubeEmbedUrl(room.videoUrl);
+  const currentVideo = videos[activeVideoIndex] || videos[0] || '';
+  const ytEmbed = getYouTubeEmbedUrl(currentVideo);
 
   return (
     <div className="min-h-screen bg-[#faf9f8] font-sans text-[#333]">
@@ -217,9 +228,9 @@ export const ChambreDetail = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
           {/* Galerie */}
           <div className="flex flex-col gap-4">
-            {/* Onglets Photos / Vidéo si une vidéo est disponible */}
-            {room.videoUrl && (
-              <div className="flex gap-2 p-1 bg-gray-100 rounded-2xl max-w-xs">
+            {/* Onglets Photos / Vidéos si des vidéos sont disponibles */}
+            {videos.length > 0 && (
+              <div className="flex gap-2 p-1 bg-gray-100 rounded-2xl max-w-sm">
                 <button
                   type="button"
                   onClick={() => setMediaMode('photos')}
@@ -241,26 +252,49 @@ export const ChambreDetail = () => {
                   }`}
                 >
                   <Play size={13} className={mediaMode === 'video' ? 'text-white fill-white' : 'text-primary-600'} />
-                  Vidéo de visite
+                  {videos.length > 1 ? `Vidéos (${videos.length})` : 'Vidéo de visite'}
                 </button>
+              </div>
+            )}
+
+            {/* Sélecteur de vidéos s'il y en a plusieurs et qu'on est en mode vidéo */}
+            {mediaMode === 'video' && videos.length > 1 && (
+              <div className="flex gap-2 items-center overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Vidéos disponibles :</span>
+                {videos.map((_, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setActiveVideoIndex(idx)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 shrink-0 ${
+                      activeVideoIndex === idx
+                        ? 'bg-yellow-400 text-yellow-950 shadow-sm ring-2 ring-yellow-400/40'
+                        : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Play size={11} className={activeVideoIndex === idx ? 'fill-yellow-950' : 'fill-gray-400'} />
+                    Vidéo {idx + 1}
+                  </button>
+                ))}
               </div>
             )}
 
             {/* Cadre principal : Affichage classique sans cadre noir */}
             <div className="relative aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl">
-              {mediaMode === 'video' && room.videoUrl ? (
+              {mediaMode === 'video' && currentVideo ? (
                 ytEmbed ? (
                   <iframe
+                    key={currentVideo}
                     src={`${ytEmbed}?autoplay=1`}
-                    title={`Visite vidéo ${room.name}`}
+                    title={`Visite vidéo ${room.name} ${activeVideoIndex + 1}`}
                     className="w-full h-full bg-black"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
                   />
                 ) : (
                   <video
-                    key={room.videoUrl}
-                    src={room.videoUrl}
+                    key={currentVideo}
+                    src={currentVideo}
                     controls
                     playsInline
                     preload="metadata"
@@ -278,6 +312,7 @@ export const ChambreDetail = () => {
                     className="w-full h-full object-cover transition-all duration-500 cursor-pointer"
                     onClick={() => openLightbox(activeIndex)}
                     loading="eager"
+                    decoding="async"
                   />
 
                   {/* Bouton Voir l'image */}
@@ -333,26 +368,34 @@ export const ChambreDetail = () => {
                   }}
                   className={`w-24 h-20 rounded-xl overflow-hidden border-2 transition-all shrink-0 ${mediaMode === 'photos' && activeIndex === i ? 'border-primary-600 scale-105 shadow-md' : 'border-transparent opacity-60 hover:opacity-100'}`}
                 >
-                  <img src={img} alt={`${room.name} ${i + 1}`} className="w-full h-full object-cover" loading="lazy" />
+                  <img src={img} alt={`${room.name} ${i + 1}`} className="w-full h-full object-cover" loading="lazy" decoding="async" />
                 </button>
               ))}
 
-              {/* Bouton thumbnail spécial pour la vidéo */}
-              {room.videoUrl && (
+              {/* Boutons thumbnails spéciaux pour les vidéos */}
+              {videos.map((_, idx) => (
                 <button
+                  key={`vid-thumb-${idx}`}
                   type="button"
-                  onClick={() => setMediaMode('video')}
+                  onClick={() => {
+                    setActiveVideoIndex(idx);
+                    setMediaMode('video');
+                  }}
                   className={`w-24 h-20 rounded-xl overflow-hidden border-2 transition-all shrink-0 relative bg-primary-950 flex flex-col items-center justify-center text-white ${
-                    mediaMode === 'video' ? 'border-yellow-400 scale-105 shadow-md ring-2 ring-yellow-400/30' : 'border-primary-800 opacity-80 hover:opacity-100'
+                    mediaMode === 'video' && activeVideoIndex === idx
+                      ? 'border-yellow-400 scale-105 shadow-md ring-2 ring-yellow-400/30'
+                      : 'border-primary-800 opacity-80 hover:opacity-100'
                   }`}
-                  aria-label="Voir la vidéo"
+                  aria-label={`Voir la vidéo ${idx + 1}`}
                 >
                   <span className="w-8 h-8 rounded-full bg-yellow-400 text-primary-950 flex items-center justify-center shadow-md mb-1">
                     <Play size={14} className="fill-primary-950 ml-0.5" />
                   </span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-yellow-300">Vidéo</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-yellow-300">
+                    {videos.length > 1 ? `Vidéo ${idx + 1}` : 'Vidéo'}
+                  </span>
                 </button>
-              )}
+              ))}
             </div>
           </div>
 

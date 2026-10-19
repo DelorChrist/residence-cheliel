@@ -1,3 +1,5 @@
+import { compressImage } from '../utils/imageCompressor';
+
 const apiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') || 'http://localhost:3000';
 const tokenKey = 'cheliel_admin_token';
 const sessionKey = 'cheliel_admin_session';
@@ -116,7 +118,9 @@ export const api = {
   storage: {
     from: (_bucket: string) => ({
       upload: async (_path: string, file: File) => {
-        const form = new FormData(); form.append('files', file);
+        const fileToUpload = await compressImage(file).catch(() => file);
+        const form = new FormData();
+        form.append('files', fileToUpload);
         const result = await request<Array<{ url: string }>>('/api/admin/gallery/upload', { method: 'POST', body: form });
         return { data: result.data?.[0] ? { path: result.data[0].url } : null, error: result.error };
       },

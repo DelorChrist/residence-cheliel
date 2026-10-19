@@ -175,19 +175,20 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
   return (
     <div>
-      {/* En-tête de vue principale */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Paramètres</h1>
-          <p className="text-gray-500">Gestion du compte, des administrateurs et maintenance de la résidence.</p>
+      {/* En-tête et sous-onglets fixés au défilement */}
+      <div className="sticky -top-6 lg:-top-10 z-20 bg-[#faf9f8]/95 backdrop-blur-md -mx-6 lg:-mx-10 px-6 lg:px-10 pt-4 pb-3 mb-6 border-b border-gray-200/80 shadow-xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+          <div>
+            <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Paramètres</h1>
+            <p className="text-gray-500">Gestion du compte, des administrateurs et maintenance de la résidence.</p>
+          </div>
+          <div className="hidden md:flex items-center gap-3">
+            {headerActions}
+          </div>
         </div>
-        <div className="hidden md:flex items-center gap-3">
-          {headerActions}
-        </div>
-      </div>
 
-      {/* Barre de navigation simple des sous-onglets fixée au défilement */}
-      <div className="sticky -top-6 lg:-top-10 z-20 bg-gray-50/95 backdrop-blur-md -mx-6 px-6 lg:-mx-10 lg:px-10 pt-6 pb-3 mb-6 border-b border-gray-200/80 flex flex-wrap gap-2">
+        {/* Barre de navigation des sous-onglets */}
+        <div className="flex flex-wrap gap-2">
         <button
           type="button"
           onClick={() => { setActiveSubTab('password'); setPassError(''); setPassSuccess(''); }}
@@ -229,6 +230,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           <AlertTriangle size={16} /> Zone de danger
         </button>
       </div>
+    </div>
 
       {/* Contenu de l'onglet sélectionné */}
       <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8">

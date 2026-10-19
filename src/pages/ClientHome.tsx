@@ -157,17 +157,23 @@ export const ClientHome = () => {
               <p className="text-gray-500 text-lg leading-relaxed">Chaque espace est pensé pour votre bien-être, avec des équipements modernes et une décoration raffinée.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {rooms.map((room) => (
+              {rooms.slice(0, 4).map((room) => (
                 <RoomCard key={room.id} room={room} onReserve={() => openReservationModal(room.id)} />
               ))}
             </div>
 
-            <div className="text-center mt-14">
+            <div className="text-center mt-12">
               <Link
                 to="/chambres"
-                className="inline-flex items-center gap-3 bg-primary-600 hover:bg-primary-700 text-white px-8 py-4 rounded-full font-medium text-lg transition-all hover:scale-105 transform"
+                className="inline-flex items-center gap-3 bg-primary-600 hover:bg-primary-700 text-white px-9 py-4 rounded-full font-semibold text-base sm:text-lg shadow-lg hover:shadow-xl transition-all hover:scale-105 transform group"
               >
-                Voir tous les appartements <ArrowRight size={20} />
+                <span>Voir toutes nos chambres</span>
+                {totalApartments > 0 && (
+                  <span className="text-xs bg-white/20 px-2.5 py-1 rounded-full font-medium">
+                    {totalApartments} au total
+                  </span>
+                )}
+                <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
               </Link>
             </div>
           </div>
@@ -208,6 +214,7 @@ const RoomCard = ({ room, onReserve }: { room: Room, onReserve: () => void }) =>
             alt={room.name}
             className="w-full h-full object-cover object-[center_35%] transition-transform duration-700 group-hover:scale-105"
             loading="lazy"
+            decoding="async"
           />
           <div className="absolute top-3 left-3 bg-white/95 backdrop-blur-md px-3 py-1 rounded-full font-bold text-primary-900 border border-gray-200/50 text-xs shadow-xs">
             {room.priceNight.toLocaleString()} FCFA <span className="font-normal text-gray-500">/ nuit</span>
@@ -215,10 +222,10 @@ const RoomCard = ({ room, onReserve }: { room: Room, onReserve: () => void }) =>
           <div className="absolute top-3 right-3 bg-primary-600 text-white px-2.5 py-1 rounded-full text-[11px] font-medium shadow-xs">
             {room.capacity}
           </div>
-          {room.videoUrl && (
-            <div className="absolute bottom-3 left-3 bg-black/70 backdrop-blur-md text-white text-[10px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-sm border border-white/10 z-10">
+          {(room.videoUrl || (room.videoUrls && room.videoUrls.length > 0)) && (
+            <div className="absolute bottom-3 left-3 bg-black/75 backdrop-blur-md text-white text-[10px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-sm border border-white/10 z-10">
               <Video size={11} className="text-yellow-400" />
-              <span>Visite vidéo</span>
+              <span>{room.videoUrls && room.videoUrls.length > 1 ? `${room.videoUrls.length} visites vidéo` : 'Visite vidéo'}</span>
             </div>
           )}
           <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
@@ -239,7 +246,7 @@ const RoomCard = ({ room, onReserve }: { room: Room, onReserve: () => void }) =>
                   activeImage === img ? 'border-primary-600 ring-1 ring-primary-500' : 'border-transparent opacity-60 hover:opacity-100'
                 }`}
               >
-                <img src={img} alt="" className="w-full h-full object-cover object-center" loading="lazy" />
+                <img src={img} alt="" className="w-full h-full object-cover object-center" loading="lazy" decoding="async" />
               </button>
             ))}
           </div>

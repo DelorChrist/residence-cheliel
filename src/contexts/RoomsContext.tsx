@@ -14,22 +14,29 @@ interface RoomRow {
   image_principale: string;
   images: string[];
   video_url?: string;
+  video_urls?: string[];
 }
 
-const fromDB = (r: RoomRow): Room => ({
-  id: r.id,
-  name: r.name,
-  priceNight: r.price_night,
-  priceDay: r.price_day,
-  capacity: r.capacity,
-  count: 1,
-  description: r.description,
-  longDescription: r.long_description,
-  amenities: r.amenities,
-  imagePrincipale: r.image_principale ?? '',
-  images: r.images,
-  videoUrl: r.video_url || '',
-});
+const fromDB = (r: RoomRow): Room => {
+  const vList = Array.isArray(r.video_urls) && r.video_urls.length > 0
+    ? r.video_urls.filter(Boolean)
+    : (r.video_url ? [r.video_url].filter(Boolean) : []);
+  return {
+    id: r.id,
+    name: r.name,
+    priceNight: r.price_night,
+    priceDay: r.price_day,
+    capacity: r.capacity,
+    count: 1,
+    description: r.description,
+    longDescription: r.long_description,
+    amenities: r.amenities,
+    imagePrincipale: r.image_principale ?? '',
+    images: r.images,
+    videoUrl: vList[0] || '',
+    videoUrls: vList,
+  };
+};
 
 interface RoomsContextValue {
   rooms: Room[];

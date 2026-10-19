@@ -22,9 +22,15 @@ app.disable('x-powered-by');
 (async () => {
   try {
     const [cols] = await pool.query('DESCRIBE rooms');
-    if (Array.isArray(cols) && !cols.some(c => c.Field === 'video_url')) {
-      await pool.query("ALTER TABLE rooms ADD COLUMN video_url VARCHAR(500) NULL DEFAULT '' AFTER images");
-      console.log('✅ [Auto-Migration] Colonne video_url ajoutée dans rooms.');
+    if (Array.isArray(cols)) {
+      if (!cols.some(c => c.Field === 'video_url')) {
+        await pool.query("ALTER TABLE rooms ADD COLUMN video_url VARCHAR(500) NULL DEFAULT '' AFTER images");
+        console.log('✅ [Auto-Migration] Colonne video_url ajoutée dans rooms.');
+      }
+      if (!cols.some(c => c.Field === 'video_urls')) {
+        await pool.query("ALTER TABLE rooms ADD COLUMN video_urls JSON NULL AFTER video_url");
+        console.log('✅ [Auto-Migration] Colonne video_urls ajoutée dans rooms.');
+      }
     }
   } catch {
     // Ignorer si la table n'existe pas encore ou base non initialisée
@@ -200,8 +206,12 @@ app.use(express.json({ limit: '50kb' }));
 app.use('/uploads', (_req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   next();
-}, express.static(uploadDir));
+}, express.static(uploadDir, {
+  maxAge: '365d',
+  immutable: true,
+}));
 
 const tokenFor = admin => jwt.sign(
   { sub: admin.id, email: admin.email, role: 'admin' },
@@ -247,12 +257,34 @@ const parseArrayValue = value => {
   }
 };
 
-const toRoom = row => ({
-  ...row,
-  amenities: parseArrayValue(row.amenities),
-  images: parseArrayValue(row.images),
-  video_url: row.video_url || '',
-});
+const parseVideos = row => {
+  if (Array.isArray(row.video_urls)) return row.video_urls.filter(Boolean);
+  if (typeof row.video_urls === 'string') {
+    try {
+      const parsed = JSON.parse(row.video_urls);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean);
+    } catch {}
+  }
+  if (row.video_url) {
+    try {
+      const parsed = JSON.parse(row.video_url);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean);
+    } catch {}
+    return row.video_url.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+};
+
+const toRoom = row => {
+  const videos = parseVideos(row);
+  return {
+    ...row,
+    amenities: parseArrayValue(row.amenities),
+    images: parseArrayValue(row.images),
+    video_url: videos[0] || row.video_url || '',
+    video_urls: videos,
+  };
+};
 const toReservation = row => ({
   id: row.id, client_name: row.client_name, phone: row.phone, email: row.email,
   room_id: row.room_id, stay_type: row.stay_type, check_in: row.check_in,
@@ -576,11 +608,15 @@ app.delete('/api/admin/gallery/:id', auth, async (req, res) => {
 app.get('/api/admin/rooms', auth, async (_req, res) => { const [rows] = await pool.query('SELECT * FROM rooms ORDER BY name'); res.json(rows.map(toRoom)); });
 app.post('/api/admin/rooms', auth, async (req, res) => {
   const room = req.body;
+  const rawVideos = Array.isArray(room.video_urls)
+    ? room.video_urls.filter(Boolean)
+    : (room.video_url ? [room.video_url].filter(Boolean) : []);
   await pool.query('INSERT INTO rooms SET ?', {
     ...room,
     amenities: JSON.stringify(room.amenities || []),
     images: JSON.stringify(room.images || []),
-    video_url: room.video_url || '',
+    video_url: rawVideos[0] || room.video_url || '',
+    video_urls: JSON.stringify(rawVideos),
   });
   await pool.query(
     'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
@@ -590,13 +626,17 @@ app.post('/api/admin/rooms', auth, async (req, res) => {
 });
 app.put('/api/admin/rooms/:id', auth, async (req, res) => {
   const room = req.body;
+  const rawVideos = Array.isArray(room.video_urls)
+    ? room.video_urls.filter(Boolean)
+    : (room.video_url ? [room.video_url].filter(Boolean) : []);
   const [oldRows] = await pool.query('SELECT name FROM rooms WHERE id = ?', [req.params.id]);
   await pool.query('UPDATE rooms SET ? WHERE id = ?', [
     {
       ...room,
       amenities: JSON.stringify(room.amenities || []),
       images: JSON.stringify(room.images || []),
-      video_url: room.video_url || '',
+      video_url: rawVideos[0] || room.video_url || '',
+      video_urls: JSON.stringify(rawVideos),
     },
     req.params.id
   ]);

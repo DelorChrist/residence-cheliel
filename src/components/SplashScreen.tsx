@@ -5,11 +5,11 @@ export const SplashScreen = ({ onDone }: { onDone: () => void }) => {
   const dotClass = 'w-2 h-2 rounded-full bg-primary-400 animate-bounce';
 
   useEffect(() => {
-    const timer = setTimeout(() => setFadeOut(true), 1800);
+    const timer = setTimeout(() => setFadeOut(true), 400);
     const done = setTimeout(() => {
       sessionStorage.setItem('splashShown', '1');
       onDone();
-    }, 2400);
+    }, 700);
     return () => { clearTimeout(timer); clearTimeout(done); };
   }, [onDone]);
 
