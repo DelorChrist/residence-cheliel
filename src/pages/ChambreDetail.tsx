@@ -259,9 +259,9 @@ export const ChambreDetail = () => {
                   />
                 ) : (
                   <video
+                    key={room.videoUrl}
                     src={room.videoUrl}
                     controls
-                    autoPlay
                     playsInline
                     preload="metadata"
                     poster={allImages[activeIndex] || room.imagePrincipale}

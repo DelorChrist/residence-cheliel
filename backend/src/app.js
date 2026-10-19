@@ -198,6 +198,7 @@ app.use(cors({
 
 app.use(express.json({ limit: '50kb' }));
 app.use('/uploads', (_req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
 }, express.static(uploadDir));

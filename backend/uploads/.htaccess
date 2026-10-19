@@ -16,6 +16,17 @@ RemoveType .php .phtml .php3 .php4 .php5 .php7 .phps .cgi .pl .py
     </IfModule>
 </FilesMatch>
 
+<IfModule mod_mime.c>
+    AddType video/mp4 .mp4 .m4v
+    AddType video/webm .webm
+    AddType video/ogg .ogv
+    AddType video/quicktime .mov
+</IfModule>
+
 <IfModule mod_headers.c>
-    Header set X-Content-Type-Options "nosniff"
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+    Header always set Access-Control-Allow-Headers "*"
+    Header always set Cross-Origin-Resource-Policy "cross-origin"
+    Header always set X-Content-Type-Options "nosniff"
 </IfModule>

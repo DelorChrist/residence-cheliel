@@ -131,10 +131,10 @@ async function main() {
     }
   }
 
-  // S'assurer que .htaccess est dans dist/
+  // S'assurer que .htaccess est toujours à jour dans dist/
   const distHtaccess = path.join(projectRoot, 'dist', '.htaccess');
   const srcHtaccess = path.join(projectRoot, 'public', '.htaccess');
-  if (fs.existsSync(srcHtaccess) && !fs.existsSync(distHtaccess)) {
+  if (fs.existsSync(srcHtaccess)) {
     fs.copyFileSync(srcHtaccess, distHtaccess);
   }
 

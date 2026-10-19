@@ -1381,9 +1381,11 @@ const VideoPicker = ({
           {/* Lecteur vidéo intégré de test */}
           <div className="relative aspect-video rounded-xl overflow-hidden bg-black shadow-inner">
             <video
+              key={videoUrl}
               src={videoUrl}
               controls
               playsInline
+              preload="metadata"
               className="w-full h-full object-contain"
             >
               Votre navigateur ne supporte pas la lecture vidéo.
