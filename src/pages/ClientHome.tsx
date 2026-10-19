@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Star, Wifi, Wind, MapPin, ArrowUp, ArrowRight } from 'lucide-react';
+import { Star, Wifi, Wind, MapPin, ArrowUp, ArrowRight, Video } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Room } from '../data/rooms';
 import { useRooms } from '../hooks/useRooms';
@@ -199,14 +199,14 @@ const RoomCard = ({ room, onReserve }: { room: Room, onReserve: () => void }) =>
   const [activeImage, setActiveImage] = useState(room.imagePrincipale || room.images[0] || '');
 
   return (
-    <div className="bg-white rounded-2xl md:rounded-3xl overflow-hidden border border-gray-100 hover:border-primary-200 hover:-translate-y-0.5 transition-all duration-300 group flex flex-col sm:flex-row shadow-sm">
+    <div className="bg-white rounded-2xl md:rounded-3xl overflow-hidden border border-gray-100 hover:border-primary-200 hover:-translate-y-0.5 transition-all duration-300 group flex flex-col sm:flex-row shadow-sm sm:h-[285px]">
       {/* Colonne Gauche : Image + Miniatures */}
-      <div className="w-full sm:w-[44%] md:w-[45%] flex flex-col bg-gray-50 shrink-0">
-        <Link to={`/chambres/${room.id}`} className="relative h-48 sm:h-full min-h-[180px] sm:min-h-[220px] overflow-hidden block">
+      <div className="w-full sm:w-[44%] md:w-[45%] flex flex-col bg-gray-50 shrink-0 h-56 sm:h-full relative overflow-hidden">
+        <Link to={`/chambres/${room.id}`} className="relative flex-1 min-h-0 overflow-hidden block">
           <img
             src={activeImage}
             alt={room.name}
-            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+            className="w-full h-full object-cover object-[center_35%] transition-transform duration-700 group-hover:scale-105"
             loading="lazy"
           />
           <div className="absolute top-3 left-3 bg-white/95 backdrop-blur-md px-3 py-1 rounded-full font-bold text-primary-900 border border-gray-200/50 text-xs shadow-xs">
@@ -215,6 +215,12 @@ const RoomCard = ({ room, onReserve }: { room: Room, onReserve: () => void }) =>
           <div className="absolute top-3 right-3 bg-primary-600 text-white px-2.5 py-1 rounded-full text-[11px] font-medium shadow-xs">
             {room.capacity}
           </div>
+          {room.videoUrl && (
+            <div className="absolute bottom-3 left-3 bg-black/70 backdrop-blur-md text-white text-[10px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-sm border border-white/10 z-10">
+              <Video size={11} className="text-yellow-400" />
+              <span>Visite vidéo</span>
+            </div>
+          )}
           <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
             <span className="bg-white text-primary-700 font-medium px-3.5 py-1.5 rounded-full text-xs shadow-sm">Voir les détails</span>
           </div>
@@ -222,7 +228,7 @@ const RoomCard = ({ room, onReserve }: { room: Room, onReserve: () => void }) =>
 
         {/* Miniatures d'images */}
         {room.images && room.images.length > 1 && (
-          <div className="flex gap-1.5 p-2 bg-gray-50 border-t border-gray-100 overflow-x-auto scrollbar-hide">
+          <div className="flex gap-1.5 p-2 bg-gray-50 border-t border-gray-100 overflow-x-auto scrollbar-hide shrink-0">
             {room.images.slice(0, 5).map((img, i) => (
               <button
                 key={i}
@@ -233,7 +239,7 @@ const RoomCard = ({ room, onReserve }: { room: Room, onReserve: () => void }) =>
                   activeImage === img ? 'border-primary-600 ring-1 ring-primary-500' : 'border-transparent opacity-60 hover:opacity-100'
                 }`}
               >
-                <img src={img} alt="" className="w-full h-full object-cover" loading="lazy" />
+                <img src={img} alt="" className="w-full h-full object-cover object-center" loading="lazy" />
               </button>
             ))}
           </div>
@@ -241,16 +247,16 @@ const RoomCard = ({ room, onReserve }: { room: Room, onReserve: () => void }) =>
       </div>
 
       {/* Colonne Droite : Détails */}
-      <div className="p-5 sm:p-5 flex-1 flex flex-col justify-between">
+      <div className="p-5 sm:p-5 flex-1 flex flex-col justify-between min-h-0 overflow-hidden">
         <div>
-          <h3 className="text-lg sm:text-xl font-heading font-bold text-gray-900 mb-1.5 leading-snug">
+          <h3 className="text-lg sm:text-xl font-heading font-bold text-gray-900 mb-1.5 leading-snug truncate">
             <Link to={`/chambres/${room.id}`} className="hover:text-primary-600 transition-colors">
               {room.name}
             </Link>
           </h3>
 
           <p className="text-gray-500 text-xs sm:text-sm leading-relaxed mb-3 line-clamp-2">
-            {room.description}
+            {room.description || "Un espace raffiné et chaleureux, entièrement équipé pour votre plus grand confort."}
           </p>
 
           <div className="mb-3">
@@ -258,7 +264,10 @@ const RoomCard = ({ room, onReserve }: { room: Room, onReserve: () => void }) =>
               Équipements Inclus
             </h4>
             <ul className="grid grid-cols-2 gap-y-1.5 gap-x-3 text-xs text-gray-600">
-              {room.amenities.slice(0, 4).map((amenity, i) => (
+              {(room.amenities && room.amenities.length > 0
+                ? room.amenities.slice(0, 4)
+                : ['Climatisation', 'Wi-Fi haut débit', 'Smart TV', 'Salle d’eau privée']
+              ).map((amenity, i) => (
                 <li key={i} className="flex items-center gap-1.5 truncate">
                   <div className="w-1.5 h-1.5 rounded-full bg-primary-500 shrink-0"></div>
                   <span className="truncate">{amenity}</span>
@@ -269,7 +278,7 @@ const RoomCard = ({ room, onReserve }: { room: Room, onReserve: () => void }) =>
         </div>
 
         {/* Boutons d'action */}
-        <div className="flex items-center gap-2 pt-3 border-t border-gray-100 mt-auto">
+        <div className="flex items-center gap-2 pt-3 border-t border-gray-100 mt-auto shrink-0">
           <Link
             to={`/chambres/${room.id}`}
             className="flex items-center justify-center gap-1 px-3 py-2 rounded-xl border border-gray-200 text-gray-700 hover:border-primary-500 hover:text-primary-600 font-medium text-xs sm:text-sm transition-all whitespace-nowrap"

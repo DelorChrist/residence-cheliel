@@ -64,18 +64,29 @@ function prepareBackendStaging() {
   if (fs.existsSync(backendEnvEx)) fs.copyFileSync(backendEnvEx, path.join(stagingDir, '.env.example'));
   if (fs.existsSync(backendHtaccess)) fs.copyFileSync(backendHtaccess, path.join(stagingDir, '.htaccess'));
 
-  // Fichier .env avec les variables de production réelles
+  const dbHost = config.DB_HOST || process.env.DB_HOST || 'localhost';
+  const dbPort = config.DB_PORT || process.env.DB_PORT || '3306';
+  const dbName = config.DB_NAME || process.env.DB_NAME || 'fuke3268_cheliel_db';
+  const dbUser = config.DB_USER || process.env.DB_USER || 'fuke3268_cheliel';
+  const dbPassword = config.DB_PASSWORD || process.env.DB_PASSWORD;
+  const jwtSecret = config.JWT_SECRET || process.env.JWT_SECRET;
+
+  if (!dbPassword || !jwtSecret) {
+    throw new Error('Variables DB_PASSWORD et JWT_SECRET requises dans .env.deploy pour générer la configuration de production.');
+  }
+
+  // Fichier .env avec les variables de production réelles (chargées depuis .env.deploy)
   const backendEnvProd = `NODE_ENV=production
 PORT=3000
-FRONTEND_ORIGIN=https://residencescheliel.com,https://www.residencescheliel.com
-DB_HOST=localhost
-DB_PORT=3306
-DB_NAME=fuke3268_cheliel_db
-DB_USER=fuke3268_cheliel
-DB_PASSWORD=ResidencesCheliel5626@
-JWT_SECRET=GYluNB42nLHesPdBbEaPk2Uf7hF39WpXhGzZwYkAjl8aYE7YnimGLsY63IBQVt
+FRONTEND_ORIGIN=${config.FRONTEND_ORIGIN || 'https://residencescheliel.com,https://www.residencescheliel.com'}
+DB_HOST=${dbHost}
+DB_PORT=${dbPort}
+DB_NAME=${dbName}
+DB_USER=${dbUser}
+DB_PASSWORD=${dbPassword}
+JWT_SECRET=${jwtSecret}
 UPLOAD_DIR=uploads
-PUBLIC_API_URL=https://api.residencescheliel.com
+PUBLIC_API_URL=${config.PUBLIC_API_URL || 'https://api.residencescheliel.com'}
 `;
   fs.writeFileSync(path.join(stagingDir, '.env'), backendEnvProd);
 

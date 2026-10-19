@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS rooms (
   amenities JSON NOT NULL,
   image_principale VARCHAR(500) NOT NULL DEFAULT '',
   images JSON NOT NULL,
+  video_url VARCHAR(500) NULL DEFAULT '',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX rooms_name_idx (name)
 ) ENGINE=InnoDB;

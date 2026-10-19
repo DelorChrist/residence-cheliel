@@ -18,6 +18,19 @@ fs.mkdirSync(uploadDir, { recursive: true });
 
 app.disable('x-powered-by');
 
+// Migration automatique au démarrage pour garantir les colonnes nécessaires
+(async () => {
+  try {
+    const [cols] = await pool.query('DESCRIBE rooms');
+    if (Array.isArray(cols) && !cols.some(c => c.Field === 'video_url')) {
+      await pool.query("ALTER TABLE rooms ADD COLUMN video_url VARCHAR(500) NULL DEFAULT '' AFTER images");
+      console.log('✅ [Auto-Migration] Colonne video_url ajoutée dans rooms.');
+    }
+  } catch {
+    // Ignorer si la table n'existe pas encore ou base non initialisée
+  }
+})();
+
 // Limiteur de débit en mémoire (zéro dépendance externe pour compatibilité totale Passenger/cPanel)
 function createRateLimiter({ windowMs, max, message }) {
   const hits = new Map();
@@ -61,12 +74,80 @@ const apiGlobalLimiter = createRateLimiter({
   message: { error: 'Trop de requêtes. Veuillez ralentir.' },
 });
 
-// Limiteur strict sur le login administrateur (anti force brute)
-const loginLimiter = createRateLimiter({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  message: { error: 'Trop de tentatives de connexion. Réessayez dans 15 minutes.' },
-});
+// ─── Protection anti force-brute progressive sur le login administrateur ──────
+// 3 tentatives échouées consécutives = 5 minutes d'attente.
+// Pénalité progressive en cas de récidive : 10 min, 15 min... jusqu'à 60 min.
+const loginAttempts = new Map();
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.length > 0) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.socket?.remoteAddress || 'unknown';
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, record] of loginAttempts.entries()) {
+    if (now > record.lockedUntil && record.failedAttempts === 0) {
+      loginAttempts.delete(ip);
+    }
+  }
+}, 10 * 60 * 1000).unref?.();
+
+const checkLoginLockout = (req, res, next) => {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const record = loginAttempts.get(ip);
+
+  if (record && now < record.lockedUntil) {
+    const remainingSeconds = Math.ceil((record.lockedUntil - now) / 1000);
+    const remainingMinutes = Math.ceil(remainingSeconds / 60);
+    const timeText = remainingMinutes > 1 ? `${remainingMinutes} minutes` : `${remainingSeconds} seconde${remainingSeconds > 1 ? 's' : ''}`;
+    return res.status(429).json({
+      error: `Nombre maximal de tentatives atteint. Accès temporairement verrouillé. Veuillez patienter encore ${timeText} avant de réessayer.`,
+      retryAfterSeconds: remainingSeconds
+    });
+  }
+  next();
+};
+
+const recordLoginFailure = (ip) => {
+  const now = Date.now();
+  let record = loginAttempts.get(ip);
+  if (!record) {
+    record = { failedAttempts: 0, lockoutCount: 0, lockedUntil: 0 };
+    loginAttempts.set(ip, record);
+  }
+
+  record.failedAttempts += 1;
+
+  if (record.failedAttempts >= 3) {
+    record.lockoutCount += 1;
+    // 1er blocage = 5 minutes, 2ème = 10 minutes, 3ème = 15 minutes, etc. (plafonné à 60 minutes)
+    const lockoutMinutes = Math.min(record.lockoutCount * 5, 60);
+    record.lockedUntil = now + (lockoutMinutes * 60 * 1000);
+    record.failedAttempts = 0;
+
+    return {
+      locked: true,
+      lockoutMinutes,
+      error: `Nombre maximal de tentatives atteint (3 échecs). Accès bloqué pendant ${lockoutMinutes} minutes.`
+    };
+  }
+
+  const remaining = 3 - record.failedAttempts;
+  return {
+    locked: false,
+    remaining,
+    error: `Email ou mot de passe incorrect (${remaining} tentative${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''}).`
+  };
+};
+
+const recordLoginSuccess = (ip) => {
+  loginAttempts.delete(ip);
+};
 
 // Limiteur sur la création de réservations
 const reservationsLimiter = createRateLimiter({
@@ -165,7 +246,12 @@ const parseArrayValue = value => {
   }
 };
 
-const toRoom = row => ({ ...row, amenities: parseArrayValue(row.amenities), images: parseArrayValue(row.images) });
+const toRoom = row => ({
+  ...row,
+  amenities: parseArrayValue(row.amenities),
+  images: parseArrayValue(row.images),
+  video_url: row.video_url || '',
+});
 const toReservation = row => ({
   id: row.id, client_name: row.client_name, phone: row.phone, email: row.email,
   room_id: row.room_id, stay_type: row.stay_type, check_in: row.check_in,
@@ -177,17 +263,51 @@ const createReservationId = () => `RES-${crypto.randomBytes(4).toString('hex').t
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 const handleLogin = async (req, res) => {
+  const ip = getClientIp(req);
   try {
     const email = (req.body?.email || '').trim().toLowerCase();
     const password = req.body?.password || '';
+
+    const failLogin = async () => {
+      const failure = recordLoginFailure(ip);
+      await pool.query(
+        'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+        [
+          null,
+          failure.locked ? 'LOGIN_BLOCKED' : 'LOGIN_FAILED',
+          'auth',
+          ip,
+          null,
+          JSON.stringify({
+            email: email || 'non renseigné',
+            ip,
+            attempt: failure.locked ? 3 : (3 - failure.remaining),
+            lockoutMinutes: failure.lockoutMinutes || null
+          })
+        ]
+      ).catch(e => console.error('[AUDIT LOGIN FAILURE ERROR]:', e.message));
+
+      const status = failure.locked ? 429 : 401;
+      return res.status(status).json({ error: failure.error });
+    };
+
     if (!email || !password) {
-      return res.status(401).json({ error: 'Email ou mot de passe incorrect.' });
+      return await failLogin();
     }
     const [rows] = await pool.query('SELECT id, email, password_hash FROM admins WHERE LOWER(TRIM(email)) = ?', [email]);
     if (!rows[0] || !(await bcrypt.compare(password, rows[0].password_hash))) {
-      return res.status(401).json({ error: 'Email ou mot de passe incorrect.' });
+      return await failLogin();
     }
+
+    // Réinitialisation immédiate du compteur en cas de succès
+    recordLoginSuccess(ip);
+
     const token = tokenFor(rows[0]);
+    await pool.query(
+      'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+      [rows[0].id, 'LOGIN', 'auth', String(rows[0].id), null, JSON.stringify({ email: rows[0].email, ip })]
+    ).catch(e => console.error('[AUDIT LOGIN ERROR]:', e.message));
+
     res.json({ token, admin: { id: rows[0].id, email: rows[0].email } });
   } catch (err) {
     console.error('[LOGIN ERROR]:', err);
@@ -195,8 +315,21 @@ const handleLogin = async (req, res) => {
   }
 };
 
-app.post('/api/auth/login', loginLimiter, handleLogin);
-app.post('/api/admin/login', loginLimiter, handleLogin);
+app.post('/api/admin/logout', auth, async (req, res) => {
+  const ip = getClientIp(req);
+  try {
+    await pool.query(
+      'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+      [req.admin.id, 'LOGOUT', 'auth', String(req.admin.id), null, JSON.stringify({ email: req.admin.email, ip })]
+    ).catch(e => console.error('[AUDIT LOGOUT ERROR]:', e.message));
+    res.json({ ok: true });
+  } catch {
+    res.json({ ok: true });
+  }
+});
+
+app.post('/api/auth/login', checkLoginLockout, handleLogin);
+app.post('/api/admin/login', checkLoginLockout, handleLogin);
 
 app.get('/api/rooms', async (_req, res) => {
   const [rows] = await pool.query('SELECT * FROM rooms ORDER BY name');
@@ -240,8 +373,11 @@ app.post('/api/reservations', reservationsLimiter, async (req, res) => {
 app.get('/api/reservations/search', searchLimiter, async (req, res) => {
   const rawQuery = String(req.query.query || '').trim();
   const query = rawQuery.replace(/[\s().-]/g, '');
-  // Sécurité anti-fuite PII : recherche vide interdite
-  if (!query || query.length < 3) {
+  const isResId = rawQuery.toUpperCase().startsWith('RES-');
+  
+  // Sécurité anti-fuite PII :
+  // Si c'est un numéro de téléphone, exiger au minimum 8 chiffres pour empêcher le scraping / énumération par préfixe court
+  if (!query || (!isResId && query.length < 8)) {
     return res.json([]);
   }
   const [rows] = await pool.query(
@@ -257,7 +393,7 @@ app.get('/api/admin/reservations', auth, async (_req, res) => {
 });
 app.patch('/api/admin/reservations/:id', auth, async (req, res) => {
   try {
-    const [oldRows] = await pool.query('SELECT status FROM reservations WHERE id = ?', [req.params.id]);
+    const [oldRows] = await pool.query('SELECT status, client_name FROM reservations WHERE id = ?', [req.params.id]);
     await pool.query('UPDATE reservations SET status = ? WHERE id = ?', [req.body.status, req.params.id]);
     if (oldRows[0]) {
       await pool.query(
@@ -267,8 +403,8 @@ app.patch('/api/admin/reservations/:id', auth, async (req, res) => {
           'UPDATE',
           'reservations',
           req.params.id,
-          JSON.stringify({ status: oldRows[0].status }),
-          JSON.stringify({ status: req.body.status }),
+          JSON.stringify({ status: oldRows[0].status, client_name: oldRows[0].client_name }),
+          JSON.stringify({ status: req.body.status, client_name: oldRows[0].client_name }),
         ]
       ).catch(err => console.error('[AUDIT UPDATE ERROR]:', err.message));
     }
@@ -304,10 +440,17 @@ app.delete('/api/admin/reservations/:id', auth, async (req, res) => {
 
 app.get('/api/admin/audit-log', auth, async (_req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 100');
+    const [rows] = await pool.query(`
+      SELECT a.*, adm.email AS admin_email 
+      FROM audit_log a 
+      LEFT JOIN admins adm ON a.admin_id = adm.id 
+      ORDER BY a.created_at DESC 
+      LIMIT 200
+    `);
     const formatted = rows.map(r => ({
       id: String(r.id),
       admin_id: r.admin_id ? String(r.admin_id) : null,
+      admin_email: r.admin_email || (r.admin_id ? `Admin #${r.admin_id}` : null),
       action: r.action,
       table_name: r.table_name,
       record_id: String(r.record_id),
@@ -356,28 +499,288 @@ app.post('/api/admin/gallery/upload', auth, upload.array('files', 20), async (re
   }
   res.status(201).json(results);
 });
+
+// Sécurité Upload Vidéo : formats vidéo acceptés (.mp4, .webm, .mov, etc.) jusqu'à 120 Mo
+const ALLOWED_VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov', '.m4v', '.ogg']);
+const uploadVideo = multer({
+  dest: uploadDir,
+  limits: { fileSize: 120 * 1024 * 1024 }, // 120MB
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ALLOWED_VIDEO_EXTS.has(ext)) {
+      return cb(new Error('Format de vidéo non autorisé. Extensions acceptées : .mp4, .webm, .mov, .m4v, .ogg'));
+    }
+    cb(null, true);
+  }
+});
+
+app.post('/api/admin/video/upload', auth, (req, res) => {
+  uploadVideo.single('video')(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || 'Erreur lors de l’upload de la vidéo.' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'Aucun fichier vidéo reçu.' });
+    }
+    const extension = path.extname(req.file.originalname).toLowerCase();
+    if (!ALLOWED_VIDEO_EXTS.has(extension)) {
+      fs.rmSync(req.file.path, { force: true });
+      return res.status(400).json({ error: 'Format vidéo non autorisé.' });
+    }
+    const storagePath = `video-${Date.now()}-${crypto.randomBytes(4).toString('hex')}${extension}`;
+    const finalPath = path.join(uploadDir, storagePath);
+    try {
+      fs.renameSync(req.file.path, finalPath);
+      const url = `${process.env.PUBLIC_API_URL || ''}/uploads/${storagePath}`;
+      await pool.query(
+        'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+        [req.admin.id, 'UPLOAD_VIDEO', 'rooms', storagePath, null, JSON.stringify({ name: req.file.originalname, size: req.file.size })]
+      ).catch(e => console.error('[AUDIT VIDEO UPLOAD ERROR]:', e.message));
+
+      res.status(201).json({ url, name: req.file.originalname, storage_path: storagePath });
+    } catch (saveErr) {
+      fs.rmSync(req.file.path, { force: true });
+      console.error('[VIDEO SAVE ERROR]:', saveErr);
+      res.status(500).json({ error: 'Erreur lors de l’enregistrement de la vidéo.' });
+    }
+  });
+});
+
 app.post('/api/admin/gallery', auth, async (req, res) => {
   const { url, name } = req.body || {};
   if (!url || !name) return res.status(400).json({ error: 'Image invalide.' });
   const storagePath = url.split('/uploads/')[1] || url;
   const id = crypto.randomUUID();
   await pool.query('INSERT INTO gallery (id, url, name, storage_path) VALUES (?, ?, ?, ?)', [id, url, name, storagePath]);
+  await pool.query(
+    'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+    [req.admin.id, 'INSERT', 'gallery', id, null, JSON.stringify({ name })]
+  ).catch(e => console.error('[AUDIT GALLERY ERROR]:', e.message));
   res.status(201).json({ id, url, name });
 });
 app.delete('/api/admin/gallery/:id', auth, async (req, res) => {
-  const [rows] = await pool.query('SELECT storage_path, url FROM gallery WHERE id = ?', [req.params.id]);
+  const [rows] = await pool.query('SELECT storage_path, url, name FROM gallery WHERE id = ?', [req.params.id]);
   if (rows[0]) {
     const [used] = await pool.query('SELECT id FROM rooms WHERE image_principale = ? OR JSON_CONTAINS(images, ?)', [rows[0].url, JSON.stringify(rows[0].url)]);
     if (!used.length) fs.rmSync(path.join(uploadDir, rows[0].storage_path), { force: true });
     await pool.query('DELETE FROM gallery WHERE id = ?', [req.params.id]);
+    await pool.query(
+      'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+      [req.admin.id, 'DELETE', 'gallery', req.params.id, JSON.stringify({ name: rows[0].name }), null]
+    ).catch(e => console.error('[AUDIT GALLERY ERROR]:', e.message));
   }
   res.json({ ok: true });
 });
 
 app.get('/api/admin/rooms', auth, async (_req, res) => { const [rows] = await pool.query('SELECT * FROM rooms ORDER BY name'); res.json(rows.map(toRoom)); });
-app.post('/api/admin/rooms', auth, async (req, res) => { const room = req.body; await pool.query('INSERT INTO rooms SET ?', { ...room, amenities: JSON.stringify(room.amenities || []), images: JSON.stringify(room.images || []) }); res.status(201).json({ ok: true }); });
-app.put('/api/admin/rooms/:id', auth, async (req, res) => { const room = req.body; await pool.query('UPDATE rooms SET ? WHERE id = ?', [{ ...room, amenities: JSON.stringify(room.amenities || []), images: JSON.stringify(room.images || []) }, req.params.id]); res.json({ ok: true }); });
-app.delete('/api/admin/rooms/:id', auth, async (req, res) => { await pool.query('DELETE FROM rooms WHERE id = ?', [req.params.id]); res.json({ ok: true }); });
+app.post('/api/admin/rooms', auth, async (req, res) => {
+  const room = req.body;
+  await pool.query('INSERT INTO rooms SET ?', {
+    ...room,
+    amenities: JSON.stringify(room.amenities || []),
+    images: JSON.stringify(room.images || []),
+    video_url: room.video_url || '',
+  });
+  await pool.query(
+    'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+    [req.admin.id, 'INSERT', 'rooms', room.id || room.name, null, JSON.stringify({ name: room.name, price_night: room.price_night })]
+  ).catch(e => console.error('[AUDIT ROOMS ERROR]:', e.message));
+  res.status(201).json({ ok: true });
+});
+app.put('/api/admin/rooms/:id', auth, async (req, res) => {
+  const room = req.body;
+  const [oldRows] = await pool.query('SELECT name FROM rooms WHERE id = ?', [req.params.id]);
+  await pool.query('UPDATE rooms SET ? WHERE id = ?', [
+    {
+      ...room,
+      amenities: JSON.stringify(room.amenities || []),
+      images: JSON.stringify(room.images || []),
+      video_url: room.video_url || '',
+    },
+    req.params.id
+  ]);
+  await pool.query(
+    'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+    [req.admin.id, 'UPDATE', 'rooms', req.params.id, JSON.stringify({ name: oldRows[0]?.name }), JSON.stringify({ name: room.name })]
+  ).catch(e => console.error('[AUDIT ROOMS ERROR]:', e.message));
+  res.json({ ok: true });
+});
+app.delete('/api/admin/rooms/:id', auth, async (req, res) => {
+  const [oldRows] = await pool.query('SELECT name FROM rooms WHERE id = ?', [req.params.id]);
+  await pool.query('DELETE FROM rooms WHERE id = ?', [req.params.id]);
+  await pool.query(
+    'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+    [req.admin.id, 'DELETE', 'rooms', req.params.id, JSON.stringify({ name: oldRows[0]?.name }), null]
+  ).catch(e => console.error('[AUDIT ROOMS ERROR]:', e.message));
+  res.json({ ok: true });
+});
+
+// ─── Paramètres système & Gestion Comptes ─────────────────────────────────────
+
+// 1. Liste des administrateurs
+app.get('/api/admin/admins-list', auth, async (_req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT id, email, created_at FROM admins ORDER BY id ASC');
+    res.json(rows);
+  } catch (err) {
+    console.error('[ADMINS LIST ERROR]:', err.message);
+    res.status(500).json({ error: 'Impossible de récupérer la liste des administrateurs.' });
+  }
+});
+
+// 2. Changer de mot de passe
+app.post('/api/admin/change-password', auth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Le mot de passe actuel et le nouveau mot de passe sont requis.' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Le nouveau mot de passe doit comporter au moins 6 caractères.' });
+    }
+
+    const [rows] = await pool.query('SELECT id, email, password_hash FROM admins WHERE id = ?', [req.admin.id]);
+    if (!rows[0] || !(await bcrypt.compare(currentPassword, rows[0].password_hash))) {
+      return res.status(400).json({ error: 'Mot de passe actuel incorrect.' });
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE admins SET password_hash = ? WHERE id = ?', [newHash, req.admin.id]);
+
+    await pool.query(
+      'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+      [req.admin.id, 'CHANGE_PASSWORD', 'admins', String(req.admin.id), null, JSON.stringify({ email: req.admin.email })]
+    ).catch(e => console.error('[AUDIT ERROR]:', e.message));
+
+    res.json({ ok: true, message: 'Mot de passe modifié avec succès.' });
+  } catch (err) {
+    console.error('[CHANGE PASSWORD ERROR]:', err.message);
+    res.status(500).json({ error: 'Erreur lors du changement de mot de passe.' });
+  }
+});
+
+// 3. Créer un nouvel administrateur
+app.post('/api/admin/create-admin', auth, async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ error: 'Adresse email invalide.' });
+    }
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'Le mot de passe doit comporter au moins 6 caractères.' });
+    }
+
+    const [existing] = await pool.query('SELECT id FROM admins WHERE LOWER(TRIM(email)) = ?', [email]);
+    if (existing.length > 0) {
+      return res.status(409).json({ error: 'Un administrateur avec cette adresse email existe déjà.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const [result] = await pool.query('INSERT INTO admins (email, password_hash) VALUES (?, ?)', [email, passwordHash]);
+
+    await pool.query(
+      'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+      [req.admin.id, 'CREATE_ADMIN', 'admins', String(result.insertId), null, JSON.stringify({ email })]
+    ).catch(e => console.error('[AUDIT ERROR]:', e.message));
+
+    res.status(201).json({ ok: true, admin: { id: result.insertId, email } });
+  } catch (err) {
+    console.error('[CREATE ADMIN ERROR]:', err.message);
+    res.status(500).json({ error: 'Erreur lors de la création de l’administrateur.' });
+  }
+});
+
+// 4. Vider la base de données (sécurité stricte : mot de passe admin requis, JAMAIS admins ni audit_log)
+app.post('/api/admin/reset-database', auth, async (req, res) => {
+  const { password, confirmationText } = req.body || {};
+
+  if (confirmationText !== 'VIDER') {
+    return res.status(400).json({ error: 'Code de confirmation invalide. Accès refusé.' });
+  }
+
+  try {
+    const [rows] = await pool.query('SELECT id, email, password_hash FROM admins WHERE id = ?', [req.admin.id]);
+    if (!rows[0] || !(await bcrypt.compare(password, rows[0].password_hash))) {
+      return res.status(401).json({ error: 'Mot de passe administrateur incorrect. Action annulée.' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.query('SET FOREIGN_KEY_CHECKS = 0');
+      // On vide réservations, appartements et galerie
+      await connection.query('DELETE FROM reservations');
+      await connection.query('DELETE FROM gallery');
+      await connection.query('DELETE FROM rooms');
+      await connection.query('SET FOREIGN_KEY_CHECKS = 1');
+      await connection.commit();
+
+      // Nettoyage sécurisé des fichiers de galerie physiques téléversés
+      try {
+        const files = fs.readdirSync(uploadDir);
+        for (const file of files) {
+          const filePath = path.join(uploadDir, file);
+          if (fs.statSync(filePath).isFile()) {
+            fs.unlinkSync(filePath);
+          }
+        }
+      } catch (fileErr) {
+        console.warn('[RESET CLEANUP WARNING]:', fileErr.message);
+      }
+    } catch (dbErr) {
+      await connection.rollback();
+      await connection.query('SET FOREIGN_KEY_CHECKS = 1').catch(() => {});
+      throw dbErr;
+    } finally {
+      connection.release();
+    }
+
+    // Le journal d'audit est conservé et enregistre la réinitialisation !
+    await pool.query(
+      'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        req.admin.id,
+        'DATABASE_RESET',
+        'DATABASE',
+        'ALL',
+        null,
+        JSON.stringify({ reset_by: req.admin.email, at: new Date().toISOString() })
+      ]
+    ).catch(e => console.error('[AUDIT ERROR]:', e.message));
+
+    res.json({ ok: true, message: 'La base de données a été vidée avec succès. Vos accès administrateur et le journal d’audit sont intacts.' });
+  } catch (err) {
+    console.error('[DATABASE RESET ERROR]:', err.message);
+    res.status(500).json({ error: 'Erreur lors de la réinitialisation de la base de données.' });
+  }
+});
+
+// 5. Informations système
+app.get('/api/admin/system-info', auth, async (_req, res) => {
+  try {
+    const [[resCount]] = await pool.query('SELECT COUNT(*) AS total FROM reservations');
+    const [[roomsCount]] = await pool.query('SELECT COUNT(*) AS total FROM rooms');
+    const [[adminsCount]] = await pool.query('SELECT COUNT(*) AS total FROM admins');
+    const [[auditCount]] = await pool.query('SELECT COUNT(*) AS total FROM audit_log');
+    const [[galleryCount]] = await pool.query('SELECT COUNT(*) AS total FROM gallery');
+
+    res.json({
+      reservations: resCount?.total || 0,
+      rooms: roomsCount?.total || 0,
+      admins: adminsCount?.total || 0,
+      auditLogs: auditCount?.total || 0,
+      galleryImages: galleryCount?.total || 0,
+      uptimeMinutes: Math.floor(process.uptime() / 60),
+      dbStatus: 'Connectée',
+      serverTime: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[SYSTEM INFO ERROR]:', err.message);
+    res.status(500).json({ error: 'Impossible de charger les informations système.' });
+  }
+});
 
 app.use((error, _req, res, _next) => {
   console.error('[GLOBAL ERROR]', error);

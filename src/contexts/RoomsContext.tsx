@@ -13,6 +13,7 @@ interface RoomRow {
   amenities: string[];
   image_principale: string;
   images: string[];
+  video_url?: string;
 }
 
 const fromDB = (r: RoomRow): Room => ({
@@ -27,6 +28,7 @@ const fromDB = (r: RoomRow): Room => ({
   amenities: r.amenities,
   imagePrincipale: r.image_principale ?? '',
   images: r.images,
+  videoUrl: r.video_url || '',
 });
 
 interface RoomsContextValue {

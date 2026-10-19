@@ -10,6 +10,7 @@ export interface Room {
   amenities: string[];
   imagePrincipale: string;
   images: string[];
+  videoUrl?: string;
 }
 
 // Données statiques vides — toutes les chambres sont gérées depuis l'espace admin

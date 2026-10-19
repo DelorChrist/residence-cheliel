@@ -4,17 +4,18 @@ import { useReservations, Reservation, getNights, getReservationPricing, Reserva
 import { useRooms } from '../hooks/useRooms';
 import { useNotifications } from '../hooks/useNotifications';
 import { NotificationCenter, NotificationToasts } from '../components/NotificationCenter';
+import { SettingsTab } from '../components/SettingsTab';
 import {
   Lock, LayoutDashboard, CalendarDays, DollarSign, Users, Clock,
   LogOut, CheckCircle2, XCircle, Download, LucideIcon, Trash2, Mail,
   Phone, Search, AlertTriangle, ChevronLeft, ChevronRight,
   BedDouble, Plus, Pencil, Save, X, Upload, ImageIcon, ClipboardList,
-  MessageSquare, Eye, EyeOff
+  MessageSquare, Eye, EyeOff, Settings, Video, Play
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 type Session = { access_token: string; user: { id: number; email: string } };
 
-type AdminTab = 'dashboard' | 'reservations' | 'clients' | 'planning' | 'chambres' | 'audit';
+type AdminTab = 'dashboard' | 'reservations' | 'clients' | 'planning' | 'chambres' | 'audit' | 'settings';
 
 const BUCKET = 'room-images';
 
@@ -1096,12 +1097,14 @@ interface RoomRow {
   amenities: string[];
   image_principale: string;
   images: string[];
+  video_url?: string;
 }
 
 const emptyRoom = (): Omit<RoomRow, 'id'> => ({
   name: '', price_night: 0, price_day: 0, capacity: '',
   description: '', long_description: '', amenities: [],
   image_principale: '', images: [],
+  video_url: '',
 });
 
 /** Galerie d'images avec image principale + images complémentaires */
@@ -1301,6 +1304,166 @@ const ImagePickerWithMain = ({
     </div>
   );
 };
+
+/** Sélecteur et uploader de vidéo de présentation */
+const VideoPicker = ({
+  videoUrl,
+  onChange,
+}: {
+  videoUrl: string;
+  onChange: (url: string) => void;
+}) => {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [customUrl, setCustomUrl] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 120 * 1024 * 1024) {
+      setError('La vidéo dépasse la taille maximale autorisée (120 Mo).');
+      return;
+    }
+
+    setUploading(true);
+    setError(null);
+    try {
+      const { data, error: upErr } = await api.storage.uploadVideo(file);
+      if (upErr || !data?.url) {
+        setError(upErr?.message || 'Erreur lors de l’upload de la vidéo.');
+      } else {
+        onChange(data.url);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Impossible d’uploader la vidéo.';
+      setError(msg);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleSetUrl = () => {
+    if (customUrl.trim()) {
+      onChange(customUrl.trim());
+      setCustomUrl('');
+      setShowUrlInput(false);
+      setError(null);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {videoUrl ? (
+        <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 overflow-hidden">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="w-8 h-8 rounded-xl bg-primary-100 text-primary-700 flex items-center justify-center shrink-0">
+                <Video size={16} />
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-gray-900">Vidéo de présentation configurée</p>
+                <p className="text-[11px] text-gray-500 truncate max-w-xs">{videoUrl}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onChange('')}
+              className="text-xs text-red-600 hover:text-red-700 font-medium px-2.5 py-1.5 rounded-lg hover:bg-red-50 flex items-center gap-1 transition-colors shrink-0"
+            >
+              <Trash2 size={13} /> Retirer
+            </button>
+          </div>
+
+          {/* Lecteur vidéo intégré de test */}
+          <div className="relative aspect-video rounded-xl overflow-hidden bg-black shadow-inner">
+            <video
+              src={videoUrl}
+              controls
+              playsInline
+              className="w-full h-full object-contain"
+            >
+              Votre navigateur ne supporte pas la lecture vidéo.
+            </video>
+          </div>
+        </div>
+      ) : (
+        <div className="border-2 border-dashed border-gray-200 rounded-2xl p-5 text-center hover:border-primary-400 transition-colors bg-white">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="video/*,.mp4,.webm,.mov"
+            className="hidden"
+            onChange={handleFileUpload}
+            disabled={uploading}
+            aria-label="Choisir une vidéo de présentation"
+          />
+
+          {uploading ? (
+            <div className="flex flex-col items-center gap-2 py-4">
+              <div className="w-7 h-7 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm font-medium text-gray-700">Téléversement de la vidéo en cours...</p>
+              <p className="text-xs text-gray-400">Veuillez patienter pendant le transfert (max 120 Mo)</p>
+            </div>
+          ) : (
+            <div>
+              <div className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-primary-50 text-primary-600 flex items-center justify-center">
+                <Video size={24} />
+              </div>
+              <p className="text-sm font-semibold text-gray-800">Ajouter une vidéo de présentation</p>
+              <p className="text-xs text-gray-500 mt-1 mb-4">
+                Visite guidée de l'appartement (MP4, WebM, MOV jusqu'à 120 Mo) ou URL
+              </p>
+
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-sm transition-colors"
+                >
+                  <Upload size={14} /> Téléverser une vidéo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowUrlInput(!showUrlInput)}
+                  className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-xl transition-colors"
+                >
+                  {showUrlInput ? 'Annuler saisie URL' : 'Saisir une URL'}
+                </button>
+              </div>
+
+              {showUrlInput && (
+                <div className="mt-3 pt-3 border-t border-gray-100 flex gap-2">
+                  <input
+                    type="text"
+                    value={customUrl}
+                    onChange={e => setCustomUrl(e.target.value)}
+                    placeholder="Ex: /images/chambre_1/video.mp4 ou https://..."
+                    className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-xl focus:border-primary-500 focus:ring-1 focus:ring-primary-500 outline-none"
+                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleSetUrl())}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSetUrl}
+                    className="px-4 py-2 bg-primary-600 text-white rounded-xl text-xs font-medium hover:bg-primary-700"
+                  >
+                    Valider
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {error && <p className="text-xs text-red-600 mt-2 font-medium">{error}</p>}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}) => {
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1334,7 +1497,18 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
   const openEdit = (room: RoomRow) => {
     setEditing(room);
     setIsNew(false);
-    setForm({ name: room.name, price_night: room.price_night, price_day: room.price_day, capacity: room.capacity, description: room.description, long_description: room.long_description, amenities: [...room.amenities], image_principale: room.image_principale, images: [...room.images] });
+    setForm({
+      name: room.name,
+      price_night: room.price_night,
+      price_day: room.price_day,
+      capacity: room.capacity,
+      description: room.description,
+      long_description: room.long_description,
+      amenities: [...room.amenities],
+      image_principale: room.image_principale,
+      images: [...room.images],
+      video_url: room.video_url || '',
+    });
   };
 
   const openNew = () => {
@@ -1449,6 +1623,21 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
                   onChangeExtra={imgs => setForm(f => ({ ...f, images: imgs }))}
                 />
               </div>
+
+              {/* Vidéo de présentation */}
+              <div>
+                <label className="text-sm font-semibold text-gray-700 mb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Video size={16} className="text-primary-600" />
+                    Vidéo de présentation (visite guidée)
+                  </span>
+                  <span className="text-xs font-normal text-gray-400">Optionnel</span>
+                </label>
+                <VideoPicker
+                  videoUrl={form.video_url || ''}
+                  onChange={url => setForm(f => ({ ...f, video_url: url }))}
+                />
+              </div>
             </div>
             <div className="sticky bottom-0 bg-white border-t border-gray-100 px-6 py-4 flex gap-3">
               <button type="button" onClick={closeEdit} className="flex-1 px-4 py-3 rounded-xl border border-gray-200 text-gray-600 font-medium hover:bg-gray-50">Annuler</button>
@@ -1482,8 +1671,14 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
           {rooms.map(room => (
             <div key={room.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
               {(room.image_principale || room.images[0]) && (
-                <div className="aspect-[16/9] overflow-hidden">
+                <div className="aspect-[16/9] overflow-hidden relative">
                   <img src={room.image_principale || room.images[0]} alt={room.name} className="w-full h-full object-cover" loading="lazy" />
+                  {room.video_url && (
+                    <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/70 backdrop-blur-md text-white text-[11px] font-semibold px-2.5 py-1 rounded-full shadow-sm">
+                      <Video size={12} className="text-yellow-400" />
+                      <span>Vidéo incluse</span>
+                    </div>
+                  )}
                 </div>
               )}
               <div className="p-5">
@@ -1521,8 +1716,9 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
 
 // ─── Vue Audit Log ────────────────────────────────────────────────────────
 interface AuditEntry {
-  id: number;
-  user_id: string | null;
+  id: string | number;
+  admin_id: string | null;
+  admin_email?: string | null;
   action: string;
   table_name: string;
   record_id: string;
@@ -1545,13 +1741,15 @@ const parseAuditData = (val: unknown): Record<string, unknown> | null => {
 const AuditTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}) => {
   const [logs, setLogs] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filterModule, setFilterModule] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     api
       .from('audit_log')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(100)
+      .limit(200)
       .then(({ data }) => {
         if (Array.isArray(data)) setLogs(data as AuditEntry[]);
         setLoading(false);
@@ -1561,76 +1759,319 @@ const AuditTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}) =
       });
   }, []);
 
-  const actionColor = (action: string) => {
-    if (action === 'INSERT') return 'bg-green-100 text-green-800';
-    if (action === 'UPDATE') return 'bg-blue-100 text-blue-800';
-    if (action === 'DELETE') return 'bg-red-100 text-red-800';
-    return 'bg-gray-100 text-gray-800';
+  const actionStyle = (action: string) => {
+    switch (action) {
+      case 'LOGIN': return 'bg-emerald-50 text-emerald-700 border border-emerald-200/60';
+      case 'LOGOUT': return 'bg-slate-100 text-slate-700 border border-slate-200/60';
+      case 'LOGIN_FAILED': return 'bg-amber-50 text-amber-700 border border-amber-200/60 font-medium';
+      case 'LOGIN_BLOCKED': return 'bg-rose-50 text-rose-700 border border-rose-300 font-bold';
+      case 'INSERT': return 'bg-green-50 text-green-700 border border-green-200/60';
+      case 'UPDATE': return 'bg-blue-50 text-blue-700 border border-blue-200/60';
+      case 'DELETE': return 'bg-red-50 text-red-700 border border-red-200/60';
+      case 'CHANGE_PASSWORD': return 'bg-purple-50 text-purple-700 border border-purple-200/60';
+      case 'CREATE_ADMIN': return 'bg-purple-50 text-purple-700 border border-purple-200/60';
+      case 'DATABASE_RESET': return 'bg-red-700 text-white font-bold animate-pulse';
+      default: return 'bg-gray-100 text-gray-700 border border-gray-200/60';
+    }
   };
 
   const actionLabel = (action: string) => {
-    if (action === 'INSERT') return 'Création';
-    if (action === 'UPDATE') return 'Modification';
-    if (action === 'DELETE') return 'Suppression';
-    return action;
+    switch (action) {
+      case 'LOGIN': return 'Connexion';
+      case 'LOGOUT': return 'Déconnexion';
+      case 'LOGIN_FAILED': return 'Échec connexion';
+      case 'LOGIN_BLOCKED': return 'Blocage IP';
+      case 'INSERT': return 'Création';
+      case 'UPDATE': return 'Modification';
+      case 'DELETE': return 'Suppression';
+      case 'CHANGE_PASSWORD': return 'Mot de passe';
+      case 'CREATE_ADMIN': return 'Nouvel admin';
+      case 'DATABASE_RESET': return 'Purge BDD';
+      default: return action;
+    }
   };
+
+  const tableLabel = (tableName: string) => {
+    switch (tableName) {
+      case 'auth': return { label: 'Session & Sécurité', badge: 'bg-indigo-50 text-indigo-700 border border-indigo-100' };
+      case 'reservations': return { label: 'Réservation', badge: 'bg-amber-50 text-amber-700 border border-amber-100' };
+      case 'rooms': return { label: 'Appartement', badge: 'bg-cyan-50 text-cyan-700 border border-cyan-100' };
+      case 'gallery': return { label: 'Galerie', badge: 'bg-teal-50 text-teal-700 border border-teal-100' };
+      case 'admins': return { label: 'Comptes Admin', badge: 'bg-purple-50 text-purple-700 border border-purple-100' };
+      case 'DATABASE': return { label: 'Base BDD', badge: 'bg-red-100 text-red-800 border border-red-200' };
+      default: return { label: tableName, badge: 'bg-gray-100 text-gray-700 border border-gray-200' };
+    }
+  };
+
+  const getLogDetail = (log: AuditEntry, oldData: Record<string, unknown> | null, newData: Record<string, unknown> | null) => {
+    const ip = (newData?.ip || oldData?.ip || (log.table_name === 'auth' && log.record_id && !isNaN(Number(log.record_id)) ? null : log.record_id)) as string | null;
+
+    if (log.action === 'LOGIN') {
+      return (
+        <span className="flex items-center flex-wrap gap-2">
+          <span>Connexion réussie ({String(newData?.email || log.admin_email || 'administrateur')})</span>
+          {ip ? <span className="font-mono text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200/60">IP: {ip}</span> : null}
+        </span>
+      );
+    }
+    if (log.action === 'LOGOUT') {
+      return (
+        <span className="flex items-center flex-wrap gap-2">
+          <span>Déconnexion ({String(newData?.email || log.admin_email || 'administrateur')})</span>
+          {ip ? <span className="font-mono text-[10px] bg-slate-50 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">IP: {ip}</span> : null}
+        </span>
+      );
+    }
+    if (log.action === 'LOGIN_FAILED') {
+      const attempt = newData?.attempt ? `(tentative ${newData.attempt}/3)` : '';
+      return (
+        <span className="flex items-center flex-wrap gap-2 text-amber-900">
+          <span>Tentative échouée pour "{String(newData?.email || 'inconnu')}" {attempt}</span>
+          {ip ? <span className="font-mono text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded border border-amber-300 font-semibold">IP: {ip}</span> : null}
+        </span>
+      );
+    }
+    if (log.action === 'LOGIN_BLOCKED') {
+      const mins = newData?.lockoutMinutes ? `${newData.lockoutMinutes} min` : '5 min';
+      return (
+        <span className="flex items-center flex-wrap gap-2 text-rose-900 font-medium">
+          <span>Verrouillage de sécurité activé (3 échecs, ban {mins}) pour "{String(newData?.email || 'inconnu')}"</span>
+          {ip ? <span className="font-mono text-[10px] bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded border border-rose-300 font-bold">IP: {ip}</span> : null}
+        </span>
+      );
+    }
+    if (log.action === 'CHANGE_PASSWORD') {
+      return 'Mot de passe administrateur modifié';
+    }
+    if (log.action === 'CREATE_ADMIN') {
+      return `Création d’un nouvel administrateur : ${newData?.email || 'compte'}`;
+    }
+    if (log.action === 'DATABASE_RESET') {
+      return `Purge complète exécutée par ${newData?.reset_by || log.admin_email || 'administrateur'}`;
+    }
+
+    if (log.table_name === 'reservations') {
+      const client = oldData?.client_name || newData?.client_name;
+      if (log.action === 'UPDATE' && oldData?.status !== newData?.status) {
+        return (
+          <span>
+            Statut : <span className="font-semibold text-gray-700">{String(oldData?.status ?? '—')}</span>
+            {' → '}
+            <span className="font-semibold text-primary-700">{String(newData?.status ?? '—')}</span>
+            {client ? <span className="text-gray-400 ml-1.5 font-normal">({String(client)})</span> : null}
+          </span>
+        );
+      }
+      if (log.action === 'DELETE') {
+        return <span>Réservation supprimée {client ? <span className="text-gray-400">({String(client)})</span> : null}</span>;
+      }
+      if (log.action === 'INSERT') {
+        return <span>Nouvelle réservation {client ? <span className="text-gray-400">({String(client)})</span> : null}</span>;
+      }
+    }
+
+    if (log.table_name === 'rooms') {
+      const name = newData?.name || oldData?.name || log.record_id;
+      if (log.action === 'INSERT') return `Appartement "${name}" créé`;
+      if (log.action === 'UPDATE') return `Appartement "${name}" modifié`;
+      if (log.action === 'DELETE') return `Appartement "${name}" supprimé`;
+    }
+
+    if (log.table_name === 'gallery') {
+      const name = newData?.name || oldData?.name || 'Image';
+      if (log.action === 'INSERT') return `Photo "${name}" ajoutée`;
+      if (log.action === 'DELETE') return `Photo "${name}" supprimée`;
+    }
+
+    return `Action ${log.action} sur ${log.table_name} (#${log.record_id})`;
+  };
+
+  const filteredLogs = useMemo(() => {
+    return logs.filter((log) => {
+      if (filterModule !== 'all') {
+        if (filterModule === 'auth' && log.table_name !== 'auth') return false;
+        if (filterModule === 'reservations' && log.table_name !== 'reservations') return false;
+        if (filterModule === 'rooms' && log.table_name !== 'rooms') return false;
+        if (filterModule === 'gallery' && log.table_name !== 'gallery') return false;
+        if (filterModule === 'security' && !['admins', 'DATABASE'].includes(log.table_name)) return false;
+      }
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        const email = (log.admin_email || '').toLowerCase();
+        const action = log.action.toLowerCase();
+        const recId = log.record_id.toLowerCase();
+        const table = log.table_name.toLowerCase();
+        const rawNew = typeof log.new_data === 'string' ? log.new_data.toLowerCase() : JSON.stringify(log.new_data || '').toLowerCase();
+        return email.includes(q) || action.includes(q) || recId.includes(q) || table.includes(q) || rawNew.includes(q);
+      }
+      return true;
+    });
+  }, [logs, filterModule, searchTerm]);
 
   return (
     <div>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-heading font-bold text-gray-900 mb-1">Journal d'audit</h1>
-          <p className="text-gray-500">Historique des 100 dernières actions sur les réservations.</p>
+          <p className="text-gray-500">Traçabilité complète des actions : connexions, modifications et suppressions.</p>
         </div>
         <div className="hidden md:flex items-center gap-3">
           {headerActions}
         </div>
       </div>
 
+      {/* Barre de filtres et recherche */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setFilterModule('all')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+              filterModule === 'all'
+                ? 'bg-primary-600 text-white shadow-sm'
+                : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Tous ({logs.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterModule('auth')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+              filterModule === 'auth'
+                ? 'bg-primary-600 text-white shadow-sm'
+                : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Connexions
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterModule('reservations')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+              filterModule === 'reservations'
+                ? 'bg-primary-600 text-white shadow-sm'
+                : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Réservations
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterModule('rooms')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+              filterModule === 'rooms'
+                ? 'bg-primary-600 text-white shadow-sm'
+                : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Appartements
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterModule('gallery')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+              filterModule === 'gallery'
+                ? 'bg-primary-600 text-white shadow-sm'
+                : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Galerie
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterModule('security')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+              filterModule === 'security'
+                ? 'bg-primary-600 text-white shadow-sm'
+                : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Sécurité
+          </button>
+        </div>
+
+        <div className="relative w-full sm:w-64">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Rechercher par email, action..."
+            className="w-full pl-9 pr-3 py-1.5 bg-white border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary-500"
+          />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        </div>
+      </div>
+
       {loading ? (
         <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" /></div>
-      ) : logs.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
+      ) : filteredLogs.length === 0 ? (
+        <div className="text-center py-16 text-gray-400 bg-white rounded-3xl border border-gray-100">
           <ClipboardList size={40} className="mx-auto mb-3 opacity-30" />
-          <p>Aucune action enregistrée pour le moment.</p>
+          <p className="text-sm">Aucune action enregistrée pour ces critères.</p>
         </div>
       ) : (
         <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse text-sm">
               <thead>
-                <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
-                  <th className="px-6 py-4 font-medium">Date</th>
-                  <th className="px-6 py-4 font-medium">Action</th>
-                  <th className="px-6 py-4 font-medium">Réservation</th>
-                  <th className="px-6 py-4 font-medium">Détails</th>
+                <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b border-gray-100">
+                  <th className="px-5 py-3.5 font-medium whitespace-nowrap">Date & Heure</th>
+                  <th className="px-5 py-3.5 font-medium whitespace-nowrap">Auteur (Qui ?)</th>
+                  <th className="px-5 py-3.5 font-medium whitespace-nowrap">Module</th>
+                  <th className="px-5 py-3.5 font-medium whitespace-nowrap">Action</th>
+                  <th className="px-5 py-3.5 font-medium">Détails de l'opération</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {logs.map(log => {
+                {filteredLogs.map(log => {
                   const oldData = parseAuditData(log.old_data);
                   const newData = parseAuditData(log.new_data);
+                  const tbl = tableLabel(log.table_name);
+                  const author = log.admin_email;
+
                   return (
-                    <tr key={log.id} className="hover:bg-gray-50/50">
-                      <td className="px-6 py-4 text-sm text-gray-500 whitespace-nowrap">
-                        {new Date(log.created_at).toLocaleString('fr-FR')}
+                    <tr key={log.id} className="hover:bg-gray-50/60 transition-colors">
+                      <td className="px-5 py-3.5 text-xs text-gray-500 whitespace-nowrap font-mono">
+                        {new Date(log.created_at).toLocaleString('fr-FR', {
+                          day: '2-digit', month: '2-digit', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit', second: '2-digit'
+                        })}
                       </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${actionColor(log.action)}`}>
+                      <td className="px-5 py-3.5 whitespace-nowrap">
+                        {author ? (
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-primary-100 text-primary-800 flex items-center justify-center font-bold text-[10px] shrink-0">
+                              {author.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="font-medium text-gray-900 text-xs">{author}</span>
+                          </div>
+                        ) : log.table_name === 'auth' ? (
+                          <div className="flex flex-col">
+                            <span className="inline-flex items-center gap-1 text-xs text-amber-700 font-medium">
+                              <AlertTriangle size={12} className="text-amber-500 shrink-0" />
+                              Tentative externe
+                            </span>
+                            {newData?.ip ? (
+                              <span className="font-mono text-[10px] text-gray-500 pl-4">{String(newData.ip)}</span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic">Système</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-0.5 rounded-md text-[11px] font-medium ${tbl.badge}`}>
+                          {tbl.label}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 whitespace-nowrap">
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${actionStyle(log.action)}`}>
                           {actionLabel(log.action)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-sm font-mono text-gray-700">{log.record_id}</td>
-                      <td className="px-6 py-4 text-sm text-gray-500">
-                        {log.action === 'UPDATE' && oldData && newData && (
-                          <span>
-                            Statut : <span className="text-gray-700 font-medium">{String(oldData.status ?? '—')}</span>
-                            {' → '}
-                            <span className="text-gray-700 font-medium">{String(newData.status ?? '—')}</span>
-                          </span>
-                        )}
-                        {log.action === 'INSERT' && <span className="text-green-700">Nouvelle réservation</span>}
-                        {log.action === 'DELETE' && <span className="text-red-700">Réservation supprimée</span>}
+                      <td className="px-5 py-3.5 text-xs text-gray-600">
+                        {getLogDetail(log, oldData, newData)}
                       </td>
                     </tr>
                   );
@@ -1703,13 +2144,13 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="h-screen h-[100dvh] bg-gray-50 flex overflow-hidden">
       {/* Toasts fixes — rendu unique dans l’arbre */}
       <NotificationToasts toasts={toasts} onDismissToast={dismissToast} />
 
-      <aside className="w-64 bg-white border-r border-gray-100 hidden md:flex flex-col h-screen sticky top-0">
-        <div className="p-6">
-          <div className="flex items-center gap-2 mb-10">
+      <aside className="w-64 bg-white border-r border-gray-100 hidden md:flex flex-col h-full shrink-0 justify-between select-none">
+        <div className="p-4 lg:p-5">
+          <div className="flex items-center gap-2 mb-4 lg:mb-6">
             <Link to="/" className="flex items-center gap-2">
               <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-heading font-bold text-sm">RC</div>
               <div className="font-heading font-bold text-xl text-primary-900">Admin Cheliel</div>
@@ -1718,8 +2159,8 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
           <nav className="space-y-1">
             {navItems.map(item => (
               <button key={item.id} type="button" onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors text-left relative ${activeTab === item.id ? 'bg-primary-50 text-primary-700' : 'text-gray-600 hover:bg-gray-50'}`}>
-                <item.icon size={20} /> {item.label}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-colors text-left relative ${activeTab === item.id ? 'bg-primary-50 text-primary-700' : 'text-gray-600 hover:bg-gray-50'}`}>
+                <item.icon size={19} /> {item.label}
                 {item.id === 'reservations' && conflictIds.size > 0 && (
                   <span className="ml-auto bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{conflictIds.size}</span>
                 )}
@@ -1727,15 +2168,30 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
             ))}
           </nav>
         </div>
-        <div className="mt-auto p-6 border-t border-gray-100">
-          <p className="text-xs text-gray-400 mb-3 truncate px-4">{session.user.email}</p>
-          <button type="button" onClick={onLogout} className="flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl font-medium transition-colors w-full">
-            <LogOut size={20} /> Déconnexion
+        <div className="p-4 lg:p-5 border-t border-gray-100 space-y-1">
+          <p className="text-xs text-gray-400 mb-2 truncate px-3">{session.user.email}</p>
+          <button
+            type="button"
+            onClick={() => setActiveTab('settings')}
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-colors text-left ${
+              activeTab === 'settings'
+                ? 'bg-primary-50 text-primary-700'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+            }`}
+          >
+            <Settings size={19} /> Paramètres
+          </button>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="w-full flex items-center gap-3 px-3.5 py-2.5 text-red-600 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors text-left"
+          >
+            <LogOut size={19} /> Déconnexion
           </button>
         </div>
       </aside>
 
-      <main className="flex-1 p-6 lg:p-10 overflow-x-hidden">
+      <main className="flex-1 p-6 lg:p-10 overflow-y-auto overflow-x-hidden h-full">
         {/* Mobile header */}
         <div className="md:hidden mb-6">
           <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm mb-4">
@@ -1757,6 +2213,19 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
                 onDismissToast={dismissToast}
                 onNavigate={(tab) => setActiveTab(tab as AdminTab)}
               />
+              <button
+                type="button"
+                onClick={() => setActiveTab('settings')}
+                aria-label="Paramètres"
+                title="Paramètres"
+                className={`p-2 rounded-lg transition-colors ${
+                  activeTab === 'settings'
+                    ? 'text-primary-700 bg-primary-100'
+                    : 'text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200'
+                }`}
+              >
+                <Settings size={20} />
+              </button>
               <button type="button" onClick={onLogout} aria-label="Déconnexion" className="p-2 text-red-600 bg-red-50 rounded-lg"><LogOut size={20} /></button>
             </div>
           </div>
@@ -1798,6 +2267,13 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
         {activeTab === 'clients' && <ClientsTab reservations={reservations} rooms={rooms} headerActions={headerActions} />}
         {activeTab === 'chambres' && <ChambresTab headerActions={headerActions} />}
         {activeTab === 'audit' && <AuditTab headerActions={headerActions} />}
+        {activeTab === 'settings' && (
+          <SettingsTab
+            session={session}
+            headerActions={headerActions}
+            onDatabaseReset={() => window.location.reload()}
+          />
+        )}
       </main>
     </div>
   );

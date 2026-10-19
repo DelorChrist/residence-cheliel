@@ -104,7 +104,13 @@ export const api = {
       }
       return result;
     },
-    signOut: async () => { localStorage.removeItem(tokenKey); localStorage.removeItem(sessionKey); authListeners.forEach(listener => listener('SIGNED_OUT', null)); return { error: null }; },
+    signOut: async () => {
+      await request('/api/admin/logout', { method: 'POST' }).catch(() => {});
+      localStorage.removeItem(tokenKey);
+      localStorage.removeItem(sessionKey);
+      authListeners.forEach(listener => listener('SIGNED_OUT', null));
+      return { error: null };
+    },
     onAuthStateChange: (listener: (event: string, session: unknown) => void) => { authListeners.add(listener); return { data: { subscription: { unsubscribe: () => authListeners.delete(listener) } } }; },
   },
   storage: {
@@ -117,7 +123,47 @@ export const api = {
       getPublicUrl: (path: string) => ({ data: { publicUrl: path } }),
       remove: async (_paths: string[]) => ({ data: null, error: null }),
     }),
+    uploadVideo: async (file: File) => {
+      const form = new FormData();
+      form.append('video', file);
+      const result = await request<{ url: string; name: string; storage_path: string }>('/api/admin/video/upload', {
+        method: 'POST',
+        body: form,
+      });
+      return { data: result.data ? { url: result.data.url, name: result.data.name } : null, error: result.error };
+    },
   },
   channel: (_name: string) => ({ on: () => ({ subscribe: () => ({}) }) }),
   removeChannel: (_channel: unknown) => undefined,
+  settings: {
+    getAdmins: () => request<Array<{ id: number; email: string; created_at?: string }>>('/api/admin/admins-list'),
+    changePassword: (payload: { currentPassword: string; newPassword: string }) =>
+      request<{ ok: boolean; message: string }>('/api/admin/change-password', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    createAdmin: (payload: { email: string; password: string }) =>
+      request<{ ok: boolean; admin: { id: number; email: string } }>('/api/admin/create-admin', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    resetDatabase: (payload: { password: string; confirmationText: string }) =>
+      request<{ ok: boolean; message: string }>('/api/admin/reset-database', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    getSystemInfo: () =>
+      request<{
+        reservations: number;
+        rooms: number;
+        admins: number;
+        auditLogs: number;
+        galleryImages: number;
+        nodeVersion: string;
+        platform: string;
+        uptimeMinutes: number;
+        dbStatus: string;
+        serverTime: string;
+      }>('/api/admin/system-info'),
+  },
 };
