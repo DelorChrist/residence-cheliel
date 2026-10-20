@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link, Navigate } from 'react-router-dom';
 import {
   ArrowLeft, Users, CheckCircle2, ChevronLeft, ChevronRight, Video,
@@ -36,11 +36,29 @@ export const ChambreDetail = () => {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [activeVideoIndex, setActiveVideoIndex] = useState(0);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const zoomLevelRef = useRef<number>(1);
+  zoomLevelRef.current = zoomLevel;
+
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const panOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  panOffsetRef.current = panOffset;
+
   const [isDragging, setIsDragging] = useState(false);
+  const [isPinching, setIsPinching] = useState(false);
+  const isPinchingRef = useRef(false);
+
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const touchStartRef = useRef<{ x: number; y: number; dist?: number }>({ x: 0, y: 0 });
+
+  const pinchDistStartRef = useRef<number>(0);
+  const pinchZoomStartRef = useRef<number>(1);
+  const pinchMidStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const pinchPanStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const swipeStartRef = useRef<{ x: number; y: number; time: number }>({ x: 0, y: 0, time: 0 });
+  const [swipeOffset, setSwipeOffset] = useState<number>(0);
+  const lastTapRef = useRef<{ time: number; x: number; y: number }>({ time: 0, x: 0, y: 0 });
+  const mainTouchStartRef = useRef<{ x: number; y: number; dist?: number }>({ x: 0, y: 0 });
 
   // Vidéos calculées de manière sûre (support multi-vidéos et rétro-compatibilité)
   const videos = useMemo(() => {
@@ -62,10 +80,55 @@ export const ChambreDetail = () => {
   const prev = () => setActiveIndex(i => (i === 0 ? allImages.length - 1 : i - 1));
   const next = () => setActiveIndex(i => (i === allImages.length - 1 ? 0 : i + 1));
 
+  const onMainTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      mainTouchStartRef.current = { x: 0, y: 0, dist };
+    } else if (e.touches.length === 1) {
+      mainTouchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, dist: 0 };
+    }
+  };
+
+  const onMainTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && mainTouchStartRef.current.dist && mainTouchStartRef.current.dist > 0) {
+      const currentDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      if (currentDist - mainTouchStartRef.current.dist > 45) {
+        // Geste d'écartement sur l'image principale : ouverture de la visionneuse avec zoom initial
+        mainTouchStartRef.current.dist = 0;
+        openLightbox(activeIndex);
+        setZoom(2);
+      }
+    }
+  };
+
+  const onMainTouchEnd = (e: React.TouchEvent) => {
+    if (e.changedTouches.length === 1 && (!mainTouchStartRef.current.dist || mainTouchStartRef.current.dist === 0)) {
+      const diffX = e.changedTouches[0].clientX - mainTouchStartRef.current.x;
+      const diffY = e.changedTouches[0].clientY - mainTouchStartRef.current.y;
+      if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY) * 1.2) {
+        if (diffX < 0) next();
+        else prev();
+      }
+    }
+    mainTouchStartRef.current.dist = 0;
+  };
+
   const resetZoomAndPan = useCallback(() => {
     setZoomLevel(1);
+    zoomLevelRef.current = 1;
     setPanOffset({ x: 0, y: 0 });
+    panOffsetRef.current = { x: 0, y: 0 };
+    setSwipeOffset(0);
     setIsDragging(false);
+    setIsPinching(false);
+    isPinchingRef.current = false;
+    pinchDistStartRef.current = 0;
   }, []);
 
   const openLightbox = (index: number) => {
@@ -92,8 +155,10 @@ export const ChambreDetail = () => {
   const setZoom = (nextZoom: number) => {
     const clamped = Math.max(1, Math.min(5, Number(nextZoom.toFixed(2))));
     setZoomLevel(clamped);
+    zoomLevelRef.current = clamped;
     if (clamped === 1) {
       setPanOffset({ x: 0, y: 0 });
+      panOffsetRef.current = { x: 0, y: 0 };
     }
   };
 
@@ -115,7 +180,9 @@ export const ChambreDetail = () => {
       const clickX = e.clientX - rect.left - rect.width / 2;
       const clickY = e.clientY - rect.top - rect.height / 2;
       setZoomLevel(3);
+      zoomLevelRef.current = 3;
       setPanOffset({ x: -clickX * 2, y: -clickY * 2 });
+      panOffsetRef.current = { x: -clickX * 2, y: -clickY * 2 };
     }
   };
 
@@ -137,6 +204,7 @@ export const ChambreDetail = () => {
     const maxBoundY = (window.innerHeight * (zoomLevel - 0.7)) / 2 + 200;
     const newX = Math.max(-maxBoundX, Math.min(maxBoundX, panStartRef.current.x + dx));
     const newY = Math.max(-maxBoundY, Math.min(maxBoundY, panStartRef.current.y + dy));
+    panOffsetRef.current = { x: newX, y: newY };
     setPanOffset({ x: newX, y: newY });
   };
 
@@ -144,44 +212,206 @@ export const ChambreDetail = () => {
     setIsDragging(false);
   };
 
-  // Déplacement et pincement tactile sur mobile/tablette
+  // Déplacement et glissement tactile (Pinch-to-zoom / dézoom à 2 doigts et glissement / swipe)
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 1 && zoomLevel > 1) {
-      setIsDragging(true);
-      touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      panStartRef.current = { ...panOffset };
-    } else if (e.touches.length === 2) {
+    if (e.touches.length === 2) {
+      // Début du geste à 2 doigts (pincement / écartement pour zoomer et dézoomer)
       const dist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-      touchStartRef.current = { ...touchStartRef.current, dist };
+      pinchDistStartRef.current = dist;
+      pinchZoomStartRef.current = zoomLevelRef.current;
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      pinchMidStartRef.current = { x: midX, y: midY };
+      pinchPanStartRef.current = { ...panOffsetRef.current };
+      setIsPinching(true);
+      isPinchingRef.current = true;
+      setIsDragging(false);
+      setSwipeOffset(0);
+    } else if (e.touches.length === 1) {
+      if (isPinchingRef.current) {
+        setIsPinching(false);
+        isPinchingRef.current = false;
+        pinchDistStartRef.current = 0;
+      }
+      swipeStartRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        time: Date.now(),
+      };
+      if (zoomLevelRef.current > 1) {
+        setIsDragging(true);
+        dragStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        panStartRef.current = { ...panOffsetRef.current };
+      }
     }
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 1 && isDragging && zoomLevel > 1) {
-      const dx = e.touches[0].clientX - touchStartRef.current.x;
-      const dy = e.touches[0].clientY - touchStartRef.current.y;
-      const maxBoundX = (window.innerWidth * (zoomLevel - 0.7)) / 2 + 200;
-      const maxBoundY = (window.innerHeight * (zoomLevel - 0.7)) / 2 + 200;
-      const newX = Math.max(-maxBoundX, Math.min(maxBoundX, panStartRef.current.x + dx));
-      const newY = Math.max(-maxBoundY, Math.min(maxBoundY, panStartRef.current.y + dy));
-      setPanOffset({ x: newX, y: newY });
-    } else if (e.touches.length === 2 && touchStartRef.current.dist) {
-      const newDist = Math.hypot(
+    if (e.touches.length === 2 && pinchDistStartRef.current > 0) {
+      // Zoom et dézoom interactif à deux doigts
+      const currentDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-      const scaleFactor = newDist / touchStartRef.current.dist;
-      setZoom(zoomLevel * scaleFactor);
-      touchStartRef.current.dist = newDist;
+      const scale = currentDist / pinchDistStartRef.current;
+      const targetZoom = Math.max(1, Math.min(5, Number((pinchZoomStartRef.current * scale).toFixed(2))));
+
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      const deltaX = midX - pinchMidStartRef.current.x;
+      const deltaY = midY - pinchMidStartRef.current.y;
+
+      zoomLevelRef.current = targetZoom;
+      setZoomLevel(targetZoom);
+
+      if (targetZoom <= 1.02) {
+        panOffsetRef.current = { x: 0, y: 0 };
+        setPanOffset({ x: 0, y: 0 });
+      } else {
+        const maxBoundX = (window.innerWidth * (targetZoom - 0.7)) / 2 + 200;
+        const maxBoundY = (window.innerHeight * (targetZoom - 0.7)) / 2 + 200;
+        const newX = Math.max(-maxBoundX, Math.min(maxBoundX, pinchPanStartRef.current.x + deltaX));
+        const newY = Math.max(-maxBoundY, Math.min(maxBoundY, pinchPanStartRef.current.y + deltaY));
+        panOffsetRef.current = { x: newX, y: newY };
+        setPanOffset({ x: newX, y: newY });
+      }
+    } else if (e.touches.length === 1 && !isPinchingRef.current) {
+      const currentX = e.touches[0].clientX;
+      const currentY = e.touches[0].clientY;
+
+      if (zoomLevelRef.current > 1 && isDragging) {
+        const dx = currentX - dragStartRef.current.x;
+        const dy = currentY - dragStartRef.current.y;
+        const maxBoundX = (window.innerWidth * (zoomLevelRef.current - 0.7)) / 2 + 200;
+        const maxBoundY = (window.innerHeight * (zoomLevelRef.current - 0.7)) / 2 + 200;
+        const newX = Math.max(-maxBoundX, Math.min(maxBoundX, panStartRef.current.x + dx));
+        const newY = Math.max(-maxBoundY, Math.min(maxBoundY, panStartRef.current.y + dy));
+        panOffsetRef.current = { x: newX, y: newY };
+        setPanOffset({ x: newX, y: newY });
+      } else if (zoomLevelRef.current <= 1) {
+        const dx = currentX - swipeStartRef.current.x;
+        const dy = currentY - swipeStartRef.current.y;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          setSwipeOffset(dx);
+        }
+      }
     }
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      return;
+    }
+
+    if (e.touches.length === 1) {
+      setIsPinching(false);
+      isPinchingRef.current = false;
+      pinchDistStartRef.current = 0;
+      if (zoomLevelRef.current > 1) {
+        setIsDragging(true);
+        dragStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        panStartRef.current = { ...panOffsetRef.current };
+      } else {
+        swipeStartRef.current = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
+          time: Date.now(),
+        };
+        setSwipeOffset(0);
+      }
+      return;
+    }
+
+    // Tous les doigts sont levés
+    const wasPinching = isPinchingRef.current;
+    setIsPinching(false);
+    isPinchingRef.current = false;
+    pinchDistStartRef.current = 0;
     setIsDragging(false);
+
+    if (zoomLevelRef.current <= 1.05) {
+      zoomLevelRef.current = 1;
+      setZoomLevel(1);
+      panOffsetRef.current = { x: 0, y: 0 };
+      setPanOffset({ x: 0, y: 0 });
+
+      if (!wasPinching) {
+        const diffX = swipeOffset;
+        const duration = Date.now() - swipeStartRef.current.time;
+        setSwipeOffset(0);
+
+        if (Math.abs(diffX) > 35 && duration < 600) {
+          if (diffX < 0) {
+            nextLightbox();
+          } else {
+            prevLightbox();
+          }
+          return;
+        }
+
+        // Détection de double-tap rapide pour zoomer
+        const now = Date.now();
+        const lastTap = lastTapRef.current;
+        const timeSinceLastTap = now - lastTap.time;
+        const touch = e.changedTouches[0];
+        if (touch && timeSinceLastTap < 300) {
+          const dist = Math.hypot(touch.clientX - lastTap.x, touch.clientY - lastTap.y);
+          if (dist < 30) {
+            const clickX = touch.clientX - window.innerWidth / 2;
+            const clickY = touch.clientY - window.innerHeight / 2;
+            setZoomLevel(2.5);
+            zoomLevelRef.current = 2.5;
+            setPanOffset({ x: -clickX * 1.5, y: -clickY * 1.5 });
+            panOffsetRef.current = { x: -clickX * 1.5, y: -clickY * 1.5 };
+            lastTapRef.current = { time: 0, x: 0, y: 0 };
+            return;
+          }
+        }
+        if (touch) {
+          lastTapRef.current = { time: now, x: touch.clientX, y: touch.clientY };
+        }
+      } else {
+        setSwipeOffset(0);
+      }
+    } else {
+      setSwipeOffset(0);
+      // Double tap quand déjà zoomé : dézoom / réinitialisation
+      if (!wasPinching) {
+        const now = Date.now();
+        const lastTap = lastTapRef.current;
+        const timeSinceLastTap = now - lastTap.time;
+        const touch = e.changedTouches[0];
+        if (touch && timeSinceLastTap < 300) {
+          const dist = Math.hypot(touch.clientX - lastTap.x, touch.clientY - lastTap.y);
+          if (dist < 30) {
+            resetZoomAndPan();
+            lastTapRef.current = { time: 0, x: 0, y: 0 };
+            return;
+          }
+        }
+        if (touch) {
+          lastTapRef.current = { time: now, x: touch.clientX, y: touch.clientY };
+        }
+      }
+    }
   };
+
+  // Empêcher le zoom natif de toute la page iOS lors du pincement à deux doigts
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const preventNativePinch = (e: TouchEvent) => {
+      if (e.touches.length > 1) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('touchmove', preventNativePinch, { passive: false });
+    return () => {
+      document.removeEventListener('touchmove', preventNativePinch);
+    };
+  }, [lightboxOpen]);
 
   // Clavier pour la visionneuse HD (toujours déclaré avant tout return)
   useEffect(() => {
@@ -261,7 +491,7 @@ export const ChambreDetail = () => {
             {mediaMode === 'video' && videos.length > 1 && (
               <div className="flex gap-2 items-center overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Vidéos disponibles :</span>
-                {videos.map((_, idx) => (
+                {videos.map((_: string, idx: number) => (
                   <button
                     key={idx}
                     type="button"
@@ -280,7 +510,12 @@ export const ChambreDetail = () => {
             )}
 
             {/* Cadre principal : Affichage classique sans cadre noir */}
-            <div className="relative aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl">
+            <div
+              className="relative aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl"
+              onTouchStart={onMainTouchStart}
+              onTouchMove={onMainTouchMove}
+              onTouchEnd={onMainTouchEnd}
+            >
               {mediaMode === 'video' && currentVideo ? (
                 ytEmbed ? (
                   <iframe
@@ -334,20 +569,20 @@ export const ChambreDetail = () => {
                   <div className="absolute top-5 right-5 z-10 bg-primary-600 text-white px-3 py-1.5 rounded-full text-xs font-medium shadow-lg">
                     {room.count} disponibles
                   </div>
-                  {/* Navigation flèches */}
+                  {/* Navigation flèches (visibles sur desktop, swipe tactile sur mobile) */}
                   {allImages.length > 1 && (
                     <>
                       <button
                         onClick={(e) => { e.stopPropagation(); prev(); }}
                         aria-label="Image précédente"
-                        className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 bg-white/80 hover:bg-white text-gray-700 rounded-full flex items-center justify-center shadow-md transition-all hover:scale-110"
+                        className="hidden sm:flex absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 bg-white/80 hover:bg-white text-gray-700 rounded-full items-center justify-center shadow-md transition-all hover:scale-110"
                       >
                         <ChevronLeft size={20} />
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); next(); }}
                         aria-label="Image suivante"
-                        className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 bg-white/80 hover:bg-white text-gray-700 rounded-full flex items-center justify-center shadow-md transition-all hover:scale-110"
+                        className="hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 bg-white/80 hover:bg-white text-gray-700 rounded-full items-center justify-center shadow-md transition-all hover:scale-110"
                       >
                         <ChevronRight size={20} />
                       </button>
@@ -373,7 +608,7 @@ export const ChambreDetail = () => {
               ))}
 
               {/* Boutons thumbnails spéciaux pour les vidéos */}
-              {videos.map((_, idx) => (
+              {videos.map((_: string, idx: number) => (
                 <button
                   key={`vid-thumb-${idx}`}
                   type="button"
@@ -416,7 +651,10 @@ export const ChambreDetail = () => {
             <div className="bg-primary-50 rounded-2xl p-6 mb-8">
               <h3 className="font-heading font-bold text-primary-900 mb-4 text-lg">Équipements inclus</h3>
               <ul className="grid grid-cols-2 gap-y-3 gap-x-4">
-                {room.amenities.map((a, i) => (
+                {(room.amenities && room.amenities.length > 0
+                  ? room.amenities
+                  : ['Climatisation', 'Wifi', 'Canal', 'Cuisine équipée', 'Eau chaude']
+                ).map((a, i) => (
                   <li key={i} className="flex items-center gap-2 text-gray-700 text-sm">
                     <CheckCircle2 size={16} className="text-primary-500 shrink-0" />
                     {a}
@@ -521,77 +759,78 @@ export const ChambreDetail = () => {
             onClick={e => e.stopPropagation()}
           >
             <div>
-              <h3 className="text-base sm:text-lg font-heading font-bold text-white flex items-center gap-2">
+              <h3 className="text-base sm:text-lg font-heading font-bold text-white">
                 {room.name}
-                <span className="text-[11px] font-semibold text-yellow-400 bg-yellow-400/10 border border-yellow-400/30 px-2 py-0.5 rounded-full">
-                  Taille réelle
-                </span>
               </h3>
-              <p className="text-xs text-gray-400 mt-0.5">
-                Photo {lightboxIndex + 1} sur {allImages.length}
+              <p className="text-xs text-gray-300 mt-0.5">
+                Photo {lightboxIndex + 1} / {allImages.length}
               </p>
             </div>
 
             {/* Contrôles de zoom et fermeture */}
             <div className="flex items-center gap-1.5 sm:gap-2">
-              {/* Presets rapides de zoom */}
-              <div className="hidden sm:flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/10 mr-1">
-                {[1, 2, 3.5, 5].map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setZoom(preset)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                      Math.abs(zoomLevel - preset) < 0.1
-                        ? 'bg-yellow-400 text-black font-bold shadow-md'
-                        : 'text-gray-300 hover:text-white hover:bg-white/10'
-                    }`}
-                    title={`Zoomer à ${preset * 100}%`}
-                  >
-                    {preset === 1 ? '1x' : `${preset}x`}
-                  </button>
-                ))}
-              </div>
+              {/* Presets rapides et boutons de zoom : UNIQUEMENT SUR GRAND ÉCRAN (masqués sur mobile) */}
+              <div className="hidden sm:flex items-center gap-1.5 sm:gap-2">
+                <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/10 mr-1">
+                  {[1, 2, 3.5, 5].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setZoom(preset)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                        Math.abs(zoomLevel - preset) < 0.1
+                          ? 'bg-yellow-400 text-black font-bold shadow-md'
+                          : 'text-gray-300 hover:text-white hover:bg-white/10'
+                      }`}
+                      title={`Zoomer à ${preset * 100}%`}
+                    >
+                      {preset === 1 ? '1x' : `${preset}x`}
+                    </button>
+                  ))}
+                </div>
 
-              <button
-                type="button"
-                onClick={() => setZoom(zoomLevel - 0.5)}
-                disabled={zoomLevel <= 1}
-                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors"
-                title="Zoom arrière (-)"
-                aria-label="Zoom arrière"
-              >
-                <ZoomOut size={18} />
-              </button>
-              <span className="text-xs font-semibold px-2.5 py-1 bg-white/5 rounded-lg text-gray-200 min-w-14 text-center border border-white/10">
-                {Math.round(zoomLevel * 100)}%
-              </span>
-              <button
-                type="button"
-                onClick={() => setZoom(zoomLevel + 0.5)}
-                disabled={zoomLevel >= 5}
-                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors"
-                title="Zoom avant (+)"
-                aria-label="Zoom avant"
-              >
-                <ZoomIn size={18} />
-              </button>
-              {(zoomLevel !== 1 || panOffset.x !== 0 || panOffset.y !== 0) && (
                 <button
                   type="button"
-                  onClick={resetZoomAndPan}
-                  className="p-2 rounded-xl bg-yellow-400/20 text-yellow-300 hover:bg-yellow-400/30 transition-colors flex items-center gap-1 text-xs font-semibold px-2.5 border border-yellow-400/30"
-                  title="Réinitialiser zoom et position (Touche 0)"
-                  aria-label="Réinitialiser zoom"
+                  onClick={() => setZoom(zoomLevel - 0.5)}
+                  disabled={zoomLevel <= 1}
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors"
+                  title="Zoom arrière (-)"
+                  aria-label="Zoom arrière"
                 >
-                  <RotateCcw size={16} />
-                  <span className="hidden md:inline">Reset</span>
+                  <ZoomOut size={18} />
                 </button>
-              )}
+                <span className="text-xs font-semibold px-2.5 py-1 bg-white/5 rounded-lg text-gray-200 min-w-14 text-center border border-white/10">
+                  {Math.round(zoomLevel * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setZoom(zoomLevel + 0.5)}
+                  disabled={zoomLevel >= 5}
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors"
+                  title="Zoom avant (+)"
+                  aria-label="Zoom avant"
+                >
+                  <ZoomIn size={18} />
+                </button>
+                {(zoomLevel !== 1 || panOffset.x !== 0 || panOffset.y !== 0) && (
+                  <button
+                    type="button"
+                    onClick={resetZoomAndPan}
+                    className="p-2 rounded-xl bg-yellow-400/20 text-yellow-300 hover:bg-yellow-400/30 transition-colors flex items-center gap-1 text-xs font-semibold px-2.5 border border-yellow-400/30"
+                    title="Réinitialiser zoom et position (Touche 0)"
+                    aria-label="Réinitialiser zoom"
+                  >
+                    <RotateCcw size={16} />
+                    <span className="hidden md:inline">Reset</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Bouton Fermer (toujours visible) */}
               <button
                 type="button"
                 onClick={closeLightbox}
-                className="p-2 ml-1 sm:ml-2 rounded-xl bg-white/15 hover:bg-red-600 text-white transition-colors"
+                className="p-2 sm:p-2.5 rounded-xl bg-white/15 hover:bg-red-600 text-white transition-colors"
                 title="Fermer (Échap)"
                 aria-label="Fermer le plein écran"
               >
@@ -603,7 +842,7 @@ export const ChambreDetail = () => {
           {/* Zone d'affichage image centrale avec Pan & Zoom interactif */}
           <div
             className={`relative flex-1 flex items-center justify-center p-2 sm:p-6 overflow-hidden select-none touch-none ${
-              zoomLevel > 1 ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in'
+              zoomLevel > 1 ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default sm:cursor-zoom-in'
             }`}
             onClick={e => {
               if (e.target === e.currentTarget && !isDragging) {
@@ -619,18 +858,18 @@ export const ChambreDetail = () => {
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
           >
-            {/* Conteneur transformé pour translation (pan) et agrandissement (zoom) */}
+            {/* Conteneur transformé pour translation (pan), balayage (swipe) et agrandissement (zoom) */}
             <div
-              className="will-change-transform flex items-center justify-center max-w-full max-h-full"
+              className="will-change-transform flex items-center justify-center max-w-full max-h-full touch-none"
               style={{
-                transform: `translate3d(${panOffset.x}px, ${panOffset.y}px, 0px) scale(${zoomLevel})`,
+                transform: `translate3d(${panOffset.x + (zoomLevel <= 1 ? swipeOffset : 0)}px, ${panOffset.y}px, 0px) scale(${zoomLevel})`,
                 transformOrigin: 'center center',
-                transition: isDragging ? 'none' : 'transform 0.18s cubic-bezier(0.2, 0, 0, 1)',
+                transition: isDragging || isPinching || (zoomLevel <= 1 && swipeOffset !== 0) ? 'none' : 'transform 0.22s cubic-bezier(0.2, 0, 0, 1)',
               }}
               onDoubleClick={handleDoubleClick}
               onClick={e => {
                 e.stopPropagation();
-                if (zoomLevel === 1) {
+                if (zoomLevel === 1 && window.innerWidth >= 640) {
                   const rect = e.currentTarget.getBoundingClientRect();
                   const clickX = e.clientX - rect.left - rect.width / 2;
                   const clickY = e.clientY - rect.top - rect.height / 2;
@@ -643,7 +882,7 @@ export const ChambreDetail = () => {
                 src={allImages[lightboxIndex]}
                 alt={`${room.name} ${lightboxIndex + 1}`}
                 draggable={false}
-                className="max-h-[82vh] max-w-[94vw] w-auto h-auto object-contain drop-shadow-2xl select-none pointer-events-auto"
+                className="max-h-[85vh] sm:max-h-[82vh] max-w-[96vw] sm:max-w-[94vw] w-auto h-auto object-contain drop-shadow-2xl select-none pointer-events-auto touch-none"
                 style={{
                   imageRendering: '-webkit-optimize-contrast',
                 }}
@@ -651,29 +890,13 @@ export const ChambreDetail = () => {
               />
             </div>
 
-            {/* Bulle d'indication & astuces d'utilisation */}
-            <div
-              className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 pointer-events-none bg-black/80 backdrop-blur-md border border-white/15 text-white/90 px-4 py-1.5 rounded-full text-xs font-medium shadow-2xl flex items-center gap-2 transition-opacity duration-300"
-              style={{ opacity: zoomLevel > 1 ? 0.95 : 0.75 }}
-            >
-              <span className="text-yellow-400 font-bold">
-                {zoomLevel > 1 ? `Zoom ${Math.round(zoomLevel * 100)}%` : 'Détails HD'}
-              </span>
-              <span className="text-white/40">•</span>
-              <span>
-                {zoomLevel > 1
-                  ? 'Glissez pour explorer les détails • Double-clic pour réinitialiser'
-                  : 'Molette ou double-clic pour zoomer dans les détails'}
-              </span>
-            </div>
-
-            {/* Flèches de navigation Lightbox */}
+            {/* Flèches de navigation Lightbox (masquées sur mobile, swipe tactile actif) */}
             {allImages.length > 1 && (
               <>
                 <button
                   type="button"
                   onClick={e => { e.stopPropagation(); prevLightbox(); }}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 z-30 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white backdrop-blur-md border border-white/10 transition-all hover:scale-110 shadow-xl"
+                  className="hidden sm:flex absolute left-4 top-1/2 -translate-y-1/2 z-30 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white backdrop-blur-md border border-white/10 transition-all hover:scale-110 shadow-xl items-center justify-center"
                   aria-label="Photo précédente"
                 >
                   <ChevronLeft size={28} />
@@ -681,7 +904,7 @@ export const ChambreDetail = () => {
                 <button
                   type="button"
                   onClick={e => { e.stopPropagation(); nextLightbox(); }}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 z-30 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white backdrop-blur-md border border-white/10 transition-all hover:scale-110 shadow-xl"
+                  className="hidden sm:flex absolute right-4 top-1/2 -translate-y-1/2 z-30 p-3 rounded-full bg-black/60 hover:bg-black/90 text-white backdrop-blur-md border border-white/10 transition-all hover:scale-110 shadow-xl items-center justify-center"
                   aria-label="Photo suivante"
                 >
                   <ChevronRight size={28} />
@@ -690,9 +913,9 @@ export const ChambreDetail = () => {
             )}
           </div>
 
-          {/* Bandeau inférieur de miniatures */}
+          {/* Bandeau inférieur de miniatures (masqué sur mobile pour laisser tout l'écran à l'image) */}
           <div
-            className="p-4 bg-black/60 border-t border-white/10 flex items-center justify-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="hidden sm:flex p-4 bg-black/60 border-t border-white/10 items-center justify-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             onClick={e => e.stopPropagation()}
           >
             {allImages.map((img, i) => (

@@ -33,8 +33,8 @@ RewriteRule ^ index.html [QSA,L]
     # HSTS — forcer HTTPS (activer après avoir configuré SSL sur o2switch)
     Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 
-    # CSP — autorise l'API, Cloudflare Turnstile, YouTube et les médias vidéo
-    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https: http://localhost:*; media-src 'self' data: blob: https: http://localhost:*; connect-src 'self' https: http://localhost:*; frame-src 'self' https://challenges.cloudflare.com https://www.youtube.com https://www.youtube-nocookie.com;"
+    # CSP — autorise l'API, Cloudflare Turnstile, YouTube, Google Maps et les médias vidéo
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https: http://localhost:*; media-src 'self' data: blob: https: http://localhost:*; connect-src 'self' https: http://localhost:*; frame-src 'self' https://challenges.cloudflare.com https://www.youtube.com https://www.youtube-nocookie.com https://www.google.com https://maps.google.com https://*.google.com;"
 </IfModule>
 
 # ============================================================

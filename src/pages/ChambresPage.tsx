@@ -82,8 +82,8 @@ const ChambreCard = ({ room, onReserve }: { room: Room; onReserve: (id: string) 
             </h4>
             <ul className="grid grid-cols-2 gap-y-1.5 gap-x-3 text-xs text-gray-600">
               {(room.amenities && room.amenities.length > 0
-                ? room.amenities.slice(0, 4)
-                : ['Climatisation', 'Wi-Fi haut débit', 'Smart TV', 'Salle d’eau privée']
+                ? room.amenities.slice(0, 6)
+                : ['Climatisation', 'Wifi', 'Canal', 'Cuisine équipée', 'Eau chaude']
               ).map((a, i) => (
                 <li key={i} className="flex items-center gap-1.5 truncate">
                   <CheckCircle2 size={12} className="text-primary-500 shrink-0" />

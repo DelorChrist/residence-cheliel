@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { api } from '../lib/api';
+import { api, DEFAULT_ROOM_AMENITIES } from '../lib/api';
 import type { Room } from '../data/rooms';
 
 interface RoomRow {
@@ -21,6 +21,9 @@ const fromDB = (r: RoomRow): Room => {
   const vList = Array.isArray(r.video_urls) && r.video_urls.length > 0
     ? r.video_urls.filter(Boolean)
     : (r.video_url ? [r.video_url].filter(Boolean) : []);
+  const amList = Array.isArray(r.amenities) && r.amenities.length > 0
+    ? r.amenities
+    : DEFAULT_ROOM_AMENITIES;
   return {
     id: r.id,
     name: r.name,
@@ -30,7 +33,7 @@ const fromDB = (r: RoomRow): Room => {
     count: 1,
     description: r.description,
     longDescription: r.long_description,
-    amenities: r.amenities,
+    amenities: amList,
     imagePrincipale: r.image_principale ?? '',
     images: r.images,
     videoUrl: vList[0] || '',

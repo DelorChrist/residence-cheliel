@@ -62,6 +62,11 @@ export const Header = ({ onReserve }: HeaderProps) => {
 
       // Priorité 3 : page d'accueil - section au centre
       const mid = window.innerHeight / 2;
+      const cadre = document.getElementById('notre-cadre');
+      if (cadre) {
+        const rect = cadre.getBoundingClientRect();
+        if (rect.top <= mid && rect.bottom >= mid) { setActiveNav('notre-cadre'); return; }
+      }
       const chambres = document.getElementById('chambres');
       if (chambres) {
         const rect = chambres.getBoundingClientRect();
@@ -79,6 +84,13 @@ export const Header = ({ onReserve }: HeaderProps) => {
     setActiveNav('accueil');
     setMobileMenuOpen(false);
     if (isHome) { scrollTo('accueil'); } else { navigate('/'); }
+  };
+
+  const handleCadre = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setActiveNav('notre-cadre');
+    setMobileMenuOpen(false);
+    if (isHome) { scrollTo('notre-cadre'); } else { navigate('/#notre-cadre'); }
   };
 
   const handleChambres = (e: React.MouseEvent) => {
@@ -155,6 +167,7 @@ export const Header = ({ onReserve }: HeaderProps) => {
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-5 ml-auto">
             <a href="#accueil" onClick={handleAccueil} className={desktopClass('accueil')}>Accueil</a>
+            <a href="#notre-cadre" onClick={handleCadre} className={desktopClass('notre-cadre')}>Notre Cadre</a>
             <a href="#chambres" onClick={handleChambres} className={desktopClass('chambres')}>Nos Chambres</a>
             <Link to="/a-propos" onClick={() => setActiveNav('a-propos')} className={desktopClass('a-propos')}>À Propos</Link>
             <Link to="/mes-reservations" onClick={() => setActiveNav('mes-reservations')} className={desktopClass('mes-reservations')}>Mes Réservations</Link>
@@ -193,6 +206,7 @@ export const Header = ({ onReserve }: HeaderProps) => {
             }`}
           >
             <a href="#accueil" onClick={handleAccueil} className={mobileClass('accueil')}>Accueil</a>
+            <a href="#notre-cadre" onClick={handleCadre} className={mobileClass('notre-cadre')}>Notre Cadre</a>
             <a href="#chambres" onClick={handleChambres} className={mobileClass('chambres')}>Nos Chambres</a>
             <Link to="/a-propos" onClick={() => { setActiveNav('a-propos'); setMobileMenuOpen(false); }} className={mobileClass('a-propos')}>À Propos</Link>
             <Link to="/mes-reservations" onClick={() => { setActiveNav('mes-reservations'); setMobileMenuOpen(false); }} className={mobileClass('mes-reservations')}>Mes Réservations</Link>

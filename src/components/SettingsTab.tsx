@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../lib/api';
 import {
   Lock, Users, Info, AlertTriangle, CheckCircle2,
-  AlertCircle, Eye, EyeOff, Loader2, Database, ShieldCheck, UserPlus
+  AlertCircle, Eye, EyeOff, Loader2, Database, ShieldCheck, UserPlus,
+  Sparkles, Plus, X, RotateCcw, Save, Waves
 } from 'lucide-react';
+import { CadreAdminTab } from './CadreAdminTab';
 
 interface SettingsTabProps {
   session: { access_token: string; user: { id: number; email: string } };
@@ -11,14 +13,22 @@ interface SettingsTabProps {
   onDatabaseReset?: () => void;
 }
 
-type SubTab = 'password' | 'admins' | 'system' | 'danger';
+type SubTab = 'amenities' | 'cadre' | 'password' | 'admins' | 'system' | 'danger';
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
   session,
   headerActions,
   onDatabaseReset,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<SubTab>('password');
+  const [activeSubTab, setActiveSubTab] = useState<SubTab>('amenities');
+
+  // État Équipements par défaut
+  const [defaultAmenities, setDefaultAmenities] = useState<string[]>([]);
+  const [amenitiesLoading, setAmenitiesLoading] = useState(false);
+  const [amenitiesSaving, setAmenitiesSaving] = useState(false);
+  const [amenityInput, setAmenityInput] = useState('');
+  const [amenitiesSuccess, setAmenitiesSuccess] = useState('');
+  const [amenitiesError, setAmenitiesError] = useState('');
 
   // État Mot de passe
   const [currentPassword, setCurrentPassword] = useState('');
@@ -62,12 +72,56 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [dangerSuccess, setDangerSuccess] = useState('');
 
   useEffect(() => {
-    if (activeSubTab === 'admins') {
+    if (activeSubTab === 'amenities') {
+      loadDefaultAmenities();
+    } else if (activeSubTab === 'admins') {
       loadAdmins();
     } else if (activeSubTab === 'system') {
       loadSystemInfo();
     }
   }, [activeSubTab]);
+
+  const loadDefaultAmenities = async () => {
+    setAmenitiesLoading(true);
+    setAmenitiesError('');
+    const res = await api.amenities.getDefault();
+    if (res.data) setDefaultAmenities(res.data);
+    else setAmenitiesError(res.error?.message || 'Erreur lors du chargement des équipements.');
+    setAmenitiesLoading(false);
+  };
+
+  const handleSaveAmenities = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAmenitiesSaving(true);
+    setAmenitiesError('');
+    setAmenitiesSuccess('');
+    const res = await api.amenities.updateDefault(defaultAmenities);
+    if (res.data) {
+      setAmenitiesSuccess('Équipements par défaut de la résidence enregistrés avec succès.');
+    } else {
+      setAmenitiesError(res.error?.message || 'Erreur lors de l’enregistrement.');
+    }
+    setAmenitiesSaving(false);
+  };
+
+  const handleAddAmenity = () => {
+    const val = amenityInput.trim();
+    if (!val) return;
+    if (defaultAmenities.some(a => a.toLowerCase() === val.toLowerCase())) {
+      setAmenityInput('');
+      return;
+    }
+    setDefaultAmenities(prev => [...prev, val]);
+    setAmenityInput('');
+  };
+
+  const handleRemoveAmenity = (index: number) => {
+    setDefaultAmenities(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleResetToStandard = () => {
+    setDefaultAmenities(['Climatisation', 'Wifi', 'Canal', 'Cuisine équipée', 'Eau chaude']);
+  };
 
   const loadAdmins = async () => {
     setAdminsLoading(true);
@@ -191,6 +245,26 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         <div className="flex flex-wrap gap-2">
         <button
           type="button"
+          onClick={() => { setActiveSubTab('amenities'); setAmenitiesError(''); setAmenitiesSuccess(''); }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeSubTab === 'amenities'
+              ? 'bg-primary-600 text-white shadow-sm'
+              : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+            }`}
+        >
+          <Sparkles size={16} /> Équipements par défaut
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('cadre')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeSubTab === 'cadre'
+              ? 'bg-primary-600 text-white shadow-sm'
+              : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+            }`}
+        >
+          <Waves size={16} /> Notre Cadre (Piscine)
+        </button>
+        <button
+          type="button"
           onClick={() => { setActiveSubTab('password'); setPassError(''); setPassSuccess(''); }}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeSubTab === 'password'
               ? 'bg-primary-600 text-white shadow-sm'
@@ -234,6 +308,130 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
       {/* Contenu de l'onglet sélectionné */}
       <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8">
+        {/* -1. Notre Cadre */}
+        {activeSubTab === 'cadre' && (
+          <CadreAdminTab />
+        )}
+
+        {/* 0. Équipements par défaut */}
+        {activeSubTab === 'amenities' && (
+          <div className="max-w-2xl">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 mb-1">Équipements par défaut de la résidence</h2>
+                <p className="text-sm text-gray-500">
+                  Ces 5 équipements sont automatiquement chargés dès que vous créez un nouvel appartement, sans avoir à les retaper. Vous pouvez ajuster cette liste globale ici, ou la modifier individuellement pour chaque chambre dans l'onglet Appartements.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleResetToStandard}
+                className="shrink-0 flex items-center gap-1.5 text-xs text-primary-700 bg-primary-50 hover:bg-primary-100 border border-primary-200 px-3 py-2 rounded-xl font-medium transition-colors"
+                title="Rétablir les 5 standards : Climatisation, Wifi, Canal, Cuisine équipée, Eau chaude"
+              >
+                <RotateCcw size={13} />
+                Rétablir standard
+              </button>
+            </div>
+
+            {amenitiesError && (
+              <div className="mb-5 p-3.5 bg-red-50 text-red-700 rounded-xl flex items-start gap-2.5 text-sm">
+                <AlertCircle size={18} className="shrink-0 mt-0.5" />
+                <span>{amenitiesError}</span>
+              </div>
+            )}
+
+            {amenitiesSuccess && (
+              <div className="mb-5 p-3.5 bg-green-50 text-green-700 rounded-xl flex items-start gap-2.5 text-sm">
+                <CheckCircle2 size={18} className="shrink-0 mt-0.5" />
+                <span>{amenitiesSuccess}</span>
+              </div>
+            )}
+
+            {amenitiesLoading ? (
+              <div className="flex items-center justify-center py-12 text-gray-400">
+                <Loader2 size={24} className="animate-spin text-primary-600 mr-2" />
+                Chargement des équipements par défaut...
+              </div>
+            ) : (
+              <form onSubmit={handleSaveAmenities} className="space-y-6">
+                <div>
+                  <label className="text-sm font-semibold text-gray-700 mb-2 block">
+                    Équipements configurés ({defaultAmenities.length})
+                  </label>
+                  <div className="flex flex-wrap gap-2 p-4 bg-gray-50 rounded-2xl border border-gray-200/80 min-h-[64px] items-center">
+                    {defaultAmenities.length > 0 ? (
+                      defaultAmenities.map((item, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-2 bg-white text-gray-800 border border-primary-200 pl-3 pr-2 py-1.5 rounded-xl text-sm font-medium shadow-2xs"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-primary-500"></span>
+                          <span>{item}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAmenity(idx)}
+                            aria-label={`Supprimer ${item}`}
+                            className="w-4 h-4 flex items-center justify-center rounded-full text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))
+                    ) : (
+                      <p className="text-xs text-amber-700">Aucun équipement configuré par défaut. Cliquez sur « Rétablir standard » pour réactiver les 5 équipements.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-semibold text-gray-700 mb-1.5 block">
+                    Ajouter un équipement à la liste par défaut
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={amenityInput}
+                      onChange={e => setAmenityInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddAmenity())}
+                      placeholder="Ex: Eau chaude, Balcon, Netflix..."
+                      className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddAmenity}
+                      disabled={!amenityInput.trim()}
+                      className="px-4 py-2.5 bg-gray-100 hover:bg-primary-50 text-gray-700 hover:text-primary-700 rounded-xl text-sm font-medium disabled:opacity-50 flex items-center gap-1.5 transition-colors border border-gray-200"
+                    >
+                      <Plus size={16} /> Ajouter
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={amenitiesSaving}
+                    className="flex items-center gap-2 px-6 py-3 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-medium text-sm transition-colors shadow-sm disabled:opacity-50"
+                  >
+                    {amenitiesSaving ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        Enregistrement...
+                      </>
+                    ) : (
+                      <>
+                        <Save size={16} />
+                        Enregistrer les modifications
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
+
         {/* 1. Mot de passe */}
         {activeSubTab === 'password' && (
           <div className="max-w-xl">

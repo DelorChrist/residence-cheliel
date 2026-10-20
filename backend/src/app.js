@@ -18,7 +18,88 @@ fs.mkdirSync(uploadDir, { recursive: true });
 
 app.disable('x-powered-by');
 
-// Migration automatique au démarrage pour garantir les colonnes nécessaires
+export const DEFAULT_ROOM_AMENITIES = [
+  'Climatisation',
+  'Wifi',
+  'Canal',
+  'Cuisine équipée',
+  'Eau chaude',
+];
+
+const getDefaultAmenities = async () => {
+  try {
+    const [rows] = await pool.query("SELECT `value` FROM settings WHERE `key` = 'default_amenities'");
+    if (rows && rows[0]?.value) {
+      const parsed = JSON.parse(rows[0].value);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return DEFAULT_ROOM_AMENITIES;
+};
+
+export const DEFAULT_CADRE_CONFIG = {
+  title: 'Notre cadre',
+  badge: "L'OASIS DE YAMOUSSOUKRO",
+  subtitle: "Reconnue pour sa piscine d'exception — parmi les plus belles et prisées de Yamoussoukro —, la Résidence Chéliel vous plonge dans une atmosphère de sérénité absolue, de fraîcheur et d'élégance tropicale.",
+  bannerUrl: '/images/piscine/longue_banniere.jpg',
+  items: [
+    {
+      id: 'cadre-1',
+      type: 'image',
+      url: '/images/piscine/longue_banniere.jpg',
+      title: 'Piscine & Transats d’Exception',
+      subtitle: 'Grand bassin turquoise avec parasols et bains de soleil sous le ciel azur de Yamoussoukro',
+      tag: 'Piscine Principale',
+      featured: true,
+    },
+    {
+      id: 'cadre-2',
+      type: 'video',
+      url: '/images/piscine/WhatsApp Video 2026-10-19 at 20.58.21.mp4',
+      title: 'Visite immersive de la piscine',
+      subtitle: 'Découvrez en vidéo la fraîcheur et le calme de notre espace aquatique',
+      tag: 'Visite Vidéo',
+      featured: true,
+    },
+    {
+      id: 'cadre-3',
+      type: 'image',
+      url: '/images/piscine.jpg',
+      title: 'Bains de Soleil & Détente',
+      subtitle: 'Transats confortables et parasols pour profiter de la douceur du climat',
+      tag: 'Bains de soleil',
+      featured: false,
+    },
+    {
+      id: 'cadre-4',
+      type: 'image',
+      url: '/images/bar.jpeg',
+      title: 'Bar Lounge & Cocktails',
+      subtitle: 'Rafraîchissements et cocktails servis directement au bord du bassin',
+      tag: 'Bar au bord de l’eau',
+      featured: false,
+    },
+  ],
+};
+
+const getCadreConfig = async () => {
+  try {
+    const [rows] = await pool.query("SELECT `value` FROM settings WHERE `key` = 'cadre_content'");
+    if (rows && rows[0]?.value) {
+      const parsed = JSON.parse(rows[0].value);
+      if (parsed && typeof parsed === 'object') {
+        const result = { ...DEFAULT_CADRE_CONFIG, ...parsed };
+        if (!result.bannerUrl || result.bannerUrl === '/images/piscine_luxe.jpg' || result.bannerUrl === '/images/piscine/longue_banniere.png') {
+          result.bannerUrl = '/images/piscine/longue_banniere.jpg';
+        }
+        return result;
+      }
+    }
+  } catch {}
+  return DEFAULT_CADRE_CONFIG;
+};
+
+// Migration automatique au démarrage pour garantir les colonnes et tables nécessaires
 (async () => {
   try {
     const [cols] = await pool.query('DESCRIBE rooms');
@@ -32,8 +113,25 @@ app.disable('x-powered-by');
         console.log('✅ [Auto-Migration] Colonne video_urls ajoutée dans rooms.');
       }
     }
-  } catch {
-    // Ignorer si la table n'existe pas encore ou base non initialisée
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS settings (
+        \`key\` VARCHAR(64) PRIMARY KEY,
+        \`value\` MEDIUMTEXT NOT NULL,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await pool.query('ALTER TABLE settings MODIFY COLUMN `value` MEDIUMTEXT NOT NULL').catch(() => {});
+    await pool.query(`
+      INSERT IGNORE INTO settings (\`key\`, \`value\`)
+      VALUES ('default_amenities', ?)
+    `, [JSON.stringify(DEFAULT_ROOM_AMENITIES)]);
+    await pool.query(`
+      INSERT IGNORE INTO settings (\`key\`, \`value\`)
+      VALUES ('cadre_content', ?)
+    `, [JSON.stringify(DEFAULT_CADRE_CONFIG)]);
+  } catch (err) {
+    console.warn('[Auto-Migration Warning]:', err.message);
   }
 })();
 
@@ -202,7 +300,7 @@ app.use(cors({
   maxAge: 600,
 }));
 
-app.use(express.json({ limit: '50kb' }));
+app.use(express.json({ limit: '2mb' }));
 app.use('/uploads', (_req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
@@ -277,9 +375,10 @@ const parseVideos = row => {
 
 const toRoom = row => {
   const videos = parseVideos(row);
+  const parsedAmenities = parseArrayValue(row.amenities);
   return {
     ...row,
-    amenities: parseArrayValue(row.amenities),
+    amenities: parsedAmenities.length > 0 ? parsedAmenities : DEFAULT_ROOM_AMENITIES,
     images: parseArrayValue(row.images),
     video_url: videos[0] || row.video_url || '',
     video_urls: videos,
@@ -367,6 +466,15 @@ app.post('/api/admin/login', checkLoginLockout, handleLogin);
 app.get('/api/rooms', async (_req, res) => {
   const [rows] = await pool.query('SELECT * FROM rooms ORDER BY name');
   res.json(rows.map(toRoom));
+});
+
+app.get('/api/amenities/default', async (_req, res) => {
+  const list = await getDefaultAmenities();
+  res.json(list);
+});
+app.get('/api/rooms/default-amenities', async (_req, res) => {
+  const list = await getDefaultAmenities();
+  res.json(list);
 });
 
 app.get('/api/rooms/available', async (req, res) => {
@@ -611,9 +719,12 @@ app.post('/api/admin/rooms', auth, async (req, res) => {
   const rawVideos = Array.isArray(room.video_urls)
     ? room.video_urls.filter(Boolean)
     : (room.video_url ? [room.video_url].filter(Boolean) : []);
+  const rawAmenities = (Array.isArray(room.amenities) && room.amenities.length > 0)
+    ? room.amenities
+    : await getDefaultAmenities();
   await pool.query('INSERT INTO rooms SET ?', {
     ...room,
-    amenities: JSON.stringify(room.amenities || []),
+    amenities: JSON.stringify(rawAmenities),
     images: JSON.stringify(room.images || []),
     video_url: rawVideos[0] || room.video_url || '',
     video_urls: JSON.stringify(rawVideos),
@@ -820,6 +931,99 @@ app.get('/api/admin/system-info', auth, async (_req, res) => {
   } catch (err) {
     console.error('[SYSTEM INFO ERROR]:', err.message);
     res.status(500).json({ error: 'Impossible de charger les informations système.' });
+  }
+});
+
+// 6. Gestion des équipements par défaut du système
+app.get('/api/admin/settings/amenities', auth, async (_req, res) => {
+  try {
+    const list = await getDefaultAmenities();
+    res.json({ amenities: list });
+  } catch (err) {
+    console.error('[GET DEFAULT AMENITIES ERROR]:', err.message);
+    res.status(500).json({ error: 'Impossible de récupérer les équipements par défaut.' });
+  }
+});
+
+app.put('/api/admin/settings/amenities', auth, async (req, res) => {
+  try {
+    const { amenities } = req.body || {};
+    if (!Array.isArray(amenities)) {
+      return res.status(400).json({ error: 'La liste des équipements par défaut doit être un tableau.' });
+    }
+    const cleaned = amenities.map(a => String(a).trim()).filter(Boolean);
+    await pool.query(
+      'INSERT INTO settings (`key`, `value`) VALUES (\'default_amenities\', ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
+      [JSON.stringify(cleaned)]
+    );
+    await pool.query(
+      'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+      [req.admin.id, 'UPDATE_SETTINGS', 'settings', 'default_amenities', null, JSON.stringify({ amenities: cleaned })]
+    ).catch(e => console.error('[AUDIT SETTINGS ERROR]:', e.message));
+    res.json({ ok: true, amenities: cleaned });
+  } catch (err) {
+    console.error('[UPDATE DEFAULT AMENITIES ERROR]:', err.message);
+    res.status(500).json({ error: 'Impossible de mettre à jour les équipements par défaut.' });
+  }
+});
+
+// 7. Gestion de "Notre cadre" (Piscine & Espaces de la résidence)
+app.get('/api/cadre', async (_req, res) => {
+  try {
+    const config = await getCadreConfig();
+    res.json(config);
+  } catch (err) {
+    console.error('[GET CADRE ERROR]:', err.message);
+    res.status(500).json({ error: 'Impossible de récupérer les informations de notre cadre.' });
+  }
+});
+
+app.get('/api/admin/cadre', auth, async (_req, res) => {
+  try {
+    const config = await getCadreConfig();
+    res.json(config);
+  } catch (err) {
+    console.error('[GET ADMIN CADRE ERROR]:', err.message);
+    res.status(500).json({ error: 'Erreur lors de la récupération du cadre.' });
+  }
+});
+
+app.put('/api/admin/cadre', auth, async (req, res) => {
+  try {
+    const { title, badge, subtitle, bannerUrl, items } = req.body || {};
+    const sanitized = {
+      title: String(title || DEFAULT_CADRE_CONFIG.title).trim(),
+      badge: String(badge || DEFAULT_CADRE_CONFIG.badge).trim(),
+      subtitle: String(subtitle || DEFAULT_CADRE_CONFIG.subtitle).trim(),
+      bannerUrl: String(bannerUrl || DEFAULT_CADRE_CONFIG.bannerUrl).trim(),
+      items: Array.isArray(items)
+        ? items.map((it, idx) => ({
+            id: String(it.id || `cadre-${Date.now()}-${idx}`),
+            type: it.type === 'video' ? 'video' : 'image',
+            url: String(it.url || '').trim(),
+            title: String(it.title || '').trim(),
+            subtitle: String(it.subtitle || '').trim(),
+            tag: String(it.tag || '').trim(),
+            thumbnailUrl: String(it.thumbnailUrl || '').trim(),
+            featured: Boolean(it.featured),
+          })).filter(it => it.url.length > 0)
+        : [],
+    };
+
+    await pool.query(
+      "INSERT INTO settings (`key`, `value`) VALUES ('cadre_content', ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)",
+      [JSON.stringify(sanitized)]
+    );
+
+    await pool.query(
+      'INSERT INTO audit_log (admin_id, action, table_name, record_id, old_data, new_data) VALUES (?, ?, ?, ?, ?, ?)',
+      [req.admin.id, 'UPDATE_SETTINGS', 'settings', 'cadre_content', null, JSON.stringify({ itemsCount: sanitized.items.length })]
+    ).catch(e => console.error('[AUDIT CADRE ERROR]:', e.message));
+
+    res.json({ ok: true, cadre: sanitized });
+  } catch (err) {
+    console.error('[UPDATE CADRE ERROR]:', err.message);
+    res.status(500).json({ error: 'Impossible d’enregistrer les modifications de notre cadre.' });
   }
 });
 

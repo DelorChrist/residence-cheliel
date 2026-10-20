@@ -8,6 +8,7 @@ import { Footer } from '../components/Footer';
 import { WhatsAppButton } from '../components/WhatsAppButton';
 import { SplashScreen } from '../components/SplashScreen';
 import { ReservationModal } from '../components/ReservationModal';
+import { CadreSection } from '../components/CadreSection';
 
 export const ClientHome = () => {
   const [showSplash, setShowSplash] = useState(() => !sessionStorage.getItem('splashShown'));
@@ -37,6 +38,10 @@ export const ClientHome = () => {
     if (location.hash === '#chambres') {
       setTimeout(() => {
         document.getElementById('chambres')?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    } else if (location.hash === '#notre-cadre') {
+      setTimeout(() => {
+        document.getElementById('notre-cadre')?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
     }
   }, [location.hash]);
@@ -126,7 +131,7 @@ export const ClientHome = () => {
                 <p className="text-primary-600 font-medium tracking-widest uppercase text-sm mb-3">Notre Histoire</p>
                 <h2 className="text-3xl md:text-4xl font-heading font-bold text-gray-900 mb-6">Un cadre d'exception à Yamoussoukro</h2>
                 <p className="text-gray-600 text-lg leading-loose mb-5">
-                  Nichée à Morofé, à 100m du foyer des jeunes, les Résidences Cheliel sont bien plus qu'un simple hébergement. C'est une expérience de vie alliant le luxe discret à la chaleur de l'hospitalité ivoirienne.
+                  Nichées à Morofé, à 100m du foyer des jeunes, les Résidences Cheliel sont bien plus qu'un simple hébergement. C'est une expérience de vie alliant le luxe discret à la chaleur de l'hospitalité ivoirienne.
                 </p>
                 <p className="text-gray-600 text-lg leading-loose mb-4">
                   Profitez de notre piscine, de notre bar lounge et de nos espaces communs soigneusement aménagés pour faire de votre séjour un moment inoubliable.
@@ -147,6 +152,9 @@ export const ClientHome = () => {
             </div>
           </div>
         </section>
+
+        {/* Section Notre Cadre (Piscine & Cadre d'Exception) */}
+        <CadreSection />
 
         {/* Rooms Section */}
         <section id="chambres" className="py-14 bg-white">
@@ -272,8 +280,8 @@ const RoomCard = ({ room, onReserve }: { room: Room, onReserve: () => void }) =>
             </h4>
             <ul className="grid grid-cols-2 gap-y-1.5 gap-x-3 text-xs text-gray-600">
               {(room.amenities && room.amenities.length > 0
-                ? room.amenities.slice(0, 4)
-                : ['Climatisation', 'Wi-Fi haut débit', 'Smart TV', 'Salle d’eau privée']
+                ? room.amenities.slice(0, 6)
+                : ['Climatisation', 'Wifi', 'Canal', 'Cuisine équipée', 'Eau chaude']
               ).map((amenity, i) => (
                 <li key={i} className="flex items-center gap-1.5 truncate">
                   <div className="w-1.5 h-1.5 rounded-full bg-primary-500 shrink-0"></div>

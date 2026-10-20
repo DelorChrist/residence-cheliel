@@ -170,4 +170,92 @@ export const api = {
         serverTime: string;
       }>('/api/admin/system-info'),
   },
+  amenities: {
+    getDefault: () => request<string[]>('/api/amenities/default'),
+    updateDefault: (amenities: string[]) =>
+      request<{ ok: boolean; amenities: string[] }>('/api/admin/settings/amenities', {
+        method: 'PUT',
+        body: JSON.stringify({ amenities }),
+      }),
+  },
+  cadre: {
+    get: () => request<CadreConfig>('/api/cadre'),
+    update: (cadre: CadreConfig) =>
+      request<{ ok: boolean; cadre: CadreConfig }>('/api/admin/cadre', {
+        method: 'PUT',
+        body: JSON.stringify(cadre),
+      }),
+  },
 };
+
+export interface CadreItem {
+  id: string;
+  type: 'image' | 'video';
+  url: string;
+  title: string;
+  subtitle?: string;
+  tag?: string;
+  thumbnailUrl?: string;
+  featured?: boolean;
+}
+
+export interface CadreConfig {
+  title: string;
+  badge: string;
+  subtitle: string;
+  bannerUrl: string;
+  items: CadreItem[];
+}
+
+export const DEFAULT_CADRE_CONFIG: CadreConfig = {
+  title: 'Notre cadre',
+  badge: "L'OASIS DE YAMOUSSOUKRO",
+  subtitle: "Reconnue pour sa piscine d'exception — parmi les plus belles et prisées de Yamoussoukro —, la Résidence Chéliel vous plonge dans une atmosphère de sérénité absolue, de fraîcheur et d'élégance tropicale.",
+  bannerUrl: '/images/piscine/longue_banniere.jpg',
+  items: [
+    {
+      id: 'cadre-1',
+      type: 'image',
+      url: '/images/piscine/longue_banniere.jpg',
+      title: 'Piscine & Transats d’Exception',
+      subtitle: 'Grand bassin turquoise avec parasols et bains de soleil sous le ciel azur de Yamoussoukro',
+      tag: 'Piscine Principale',
+      featured: true,
+    },
+    {
+      id: 'cadre-2',
+      type: 'video',
+      url: '/images/piscine/WhatsApp Video 2026-10-19 at 20.58.21.mp4',
+      title: 'Visite immersive de la piscine',
+      subtitle: 'Découvrez en vidéo la fraîcheur et le calme de notre espace aquatique',
+      tag: 'Visite Vidéo',
+      featured: true,
+    },
+    {
+      id: 'cadre-3',
+      type: 'image',
+      url: '/images/piscine.jpg',
+      title: 'Bains de Soleil & Détente',
+      subtitle: 'Transats confortables et parasols pour profiter de la douceur du climat',
+      tag: 'Bains de soleil',
+      featured: false,
+    },
+    {
+      id: 'cadre-4',
+      type: 'image',
+      url: '/images/bar.jpeg',
+      title: 'Bar Lounge & Cocktails',
+      subtitle: 'Rafraîchissements et cocktails servis directement au bord du bassin',
+      tag: 'Bar au bord de l’eau',
+      featured: false,
+    },
+  ],
+};
+
+export const DEFAULT_ROOM_AMENITIES: string[] = [
+  'Climatisation',
+  'Wifi',
+  'Canal',
+  'Cuisine équipée',
+  'Eau chaude',
+];

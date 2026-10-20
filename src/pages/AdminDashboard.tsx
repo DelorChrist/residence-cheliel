@@ -1,21 +1,22 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { api } from '../lib/api';
+import { api, DEFAULT_ROOM_AMENITIES } from '../lib/api';
 import { useReservations, Reservation, getNights, getReservationPricing, ReservationStatus } from '../hooks/useReservations';
 import { useRooms } from '../hooks/useRooms';
 import { useNotifications } from '../hooks/useNotifications';
 import { NotificationCenter, NotificationToasts } from '../components/NotificationCenter';
 import { SettingsTab } from '../components/SettingsTab';
+import { CadreAdminTab } from '../components/CadreAdminTab';
 import {
   Lock, LayoutDashboard, CalendarDays, DollarSign, Users, Clock,
   LogOut, CheckCircle2, XCircle, Download, LucideIcon, Trash2, Mail,
   Phone, Search, AlertTriangle, ChevronLeft, ChevronRight,
   BedDouble, Plus, Pencil, Save, X, Upload, ImageIcon, ClipboardList,
-  MessageSquare, Eye, EyeOff, Settings, Video, Play
+  MessageSquare, Eye, EyeOff, Settings, Video, Play, RotateCcw, Waves, Sparkles
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 type Session = { access_token: string; user: { id: number; email: string } };
 
-type AdminTab = 'dashboard' | 'reservations' | 'clients' | 'planning' | 'chambres' | 'audit' | 'settings';
+type AdminTab = 'dashboard' | 'reservations' | 'clients' | 'planning' | 'chambres' | 'cadre' | 'audit' | 'settings';
 
 const BUCKET = 'room-images';
 
@@ -1101,9 +1102,24 @@ interface RoomRow {
   video_urls?: string[];
 }
 
-const emptyRoom = (): Omit<RoomRow, 'id'> => ({
+const SUGGESTED_AMENITIES: string[] = [
+  'Climatisation',
+  'Wifi',
+  'Canal',
+  'Cuisine équipée',
+  'Eau chaude',
+  'TV écran plat',
+  'Netflix',
+  'Balcon',
+  'Réfrigérateur',
+  'Micro-ondes',
+  'Vue sur piscine',
+  'Parking sécurisé',
+];
+
+const emptyRoom = (initialAmenities: string[] = DEFAULT_ROOM_AMENITIES): Omit<RoomRow, 'id'> => ({
   name: '', price_night: 0, price_day: 0, capacity: '',
-  description: '', long_description: '', amenities: [],
+  description: '', long_description: '', amenities: [...initialAmenities],
   image_principale: '', images: [],
   video_url: '',
   video_urls: [],
@@ -1630,7 +1646,8 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
   const [isNew, setIsNew] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [form, setForm] = useState<Omit<RoomRow, 'id'>>(emptyRoom());
+  const [defaultAmenities, setDefaultAmenities] = useState<string[]>(DEFAULT_ROOM_AMENITIES);
+  const [form, setForm] = useState<Omit<RoomRow, 'id'>>(emptyRoom(DEFAULT_ROOM_AMENITIES));
   const [amenityInput, setAmenityInput] = useState('');
 
   const fetchRooms = async () => {
@@ -1640,7 +1657,14 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
     setLoading(false);
   };
 
-  useEffect(() => { fetchRooms(); }, []);
+  useEffect(() => {
+    fetchRooms();
+    api.amenities.getDefault().then(res => {
+      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+        setDefaultAmenities(res.data);
+      }
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (editing || deleteConfirmId) {
@@ -1657,6 +1681,9 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
     const vUrls = Array.isArray(room.video_urls) && room.video_urls.length > 0
       ? room.video_urls.filter(Boolean)
       : (room.video_url ? [room.video_url].filter(Boolean) : []);
+    const roomAmenities = Array.isArray(room.amenities) && room.amenities.length > 0
+      ? room.amenities
+      : defaultAmenities;
     setEditing(room);
     setIsNew(false);
     setForm({
@@ -1666,7 +1693,7 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
       capacity: room.capacity,
       description: room.description,
       long_description: room.long_description,
-      amenities: [...room.amenities],
+      amenities: [...roomAmenities],
       image_principale: room.image_principale || '',
       images: [...room.images],
       video_url: vUrls[0] || '',
@@ -1675,9 +1702,10 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
   };
 
   const openNew = () => {
-    setEditing({ id: '', ...emptyRoom() });
+    const fresh = emptyRoom(defaultAmenities);
+    setEditing({ id: '', ...fresh });
     setIsNew(true);
-    setForm(emptyRoom());
+    setForm(fresh);
   };
 
   const closeEdit = () => { setEditing(null); setAmenityInput(''); };
@@ -1687,6 +1715,7 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
     setSaving(true);
     const payload = {
       ...form,
+      amenities: form.amenities.length > 0 ? form.amenities : defaultAmenities,
       video_url: form.video_urls?.[0] || form.video_url || '',
       video_urls: form.video_urls || [],
     };
@@ -1707,10 +1736,30 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
     setDeleteConfirmId(null);
   };
 
-  const addAmenity = () => {
-    if (amenityInput.trim()) { setForm(f => ({ ...f, amenities: [...f.amenities, amenityInput.trim()] })); setAmenityInput(''); }
+  const addAmenity = (val?: string) => {
+    const text = (val !== undefined ? val : amenityInput).trim();
+    if (!text) return;
+    if (form.amenities.some(a => a.toLowerCase() === text.toLowerCase())) {
+      setAmenityInput('');
+      return;
+    }
+    setForm(f => ({ ...f, amenities: [...f.amenities, text] }));
+    setAmenityInput('');
   };
+
   const removeAmenity = (i: number) => setForm(f => ({ ...f, amenities: f.amenities.filter((_, idx) => idx !== i) }));
+
+  const resetToDefaultAmenities = () => {
+    setForm(f => ({ ...f, amenities: [...defaultAmenities] }));
+  };
+
+  const clearAllAmenities = () => {
+    setForm(f => ({ ...f, amenities: [] }));
+  };
+
+  const availableSuggestions = SUGGESTED_AMENITIES.filter(
+    s => !form.amenities.some(a => a.toLowerCase() === s.toLowerCase())
+  );
 
   const inputCls = "w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none text-sm transition-all";
 
@@ -1765,19 +1814,110 @@ const ChambresTab = ({ headerActions }: { headerActions?: React.ReactNode } = {}
               </div>
 
               {/* Équipements */}
-              <div>
-                <label className="text-sm font-semibold text-gray-700 mb-1.5 block">Équipements</label>
-                <div className="flex gap-2 mb-2">
-                  <input type="text" aria-label="Ajouter un équipement" className={inputCls} value={amenityInput} onChange={e => setAmenityInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addAmenity())} placeholder="Ex: Climatisation" />
-                  <button type="button" aria-label="Ajouter équipement" onClick={addAmenity} className="px-4 py-2 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 shrink-0"><Plus size={16} /></button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {form.amenities.map((a, i) => (
-                    <span key={i} className="flex items-center gap-1.5 bg-primary-50 text-primary-700 px-3 py-1 rounded-full text-xs font-medium">
-                      {a}
-                      <button type="button" onClick={() => removeAmenity(i)} aria-label="Supprimer" className="hover:text-red-500"><X size={12} /></button>
+              <div className="bg-gray-50/80 border border-gray-200/90 rounded-2xl p-4 sm:p-5 space-y-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-bold text-gray-900 block">
+                      Équipements inclus
+                    </label>
+                    <span className="bg-primary-100 text-primary-800 text-xs font-semibold px-2 py-0.5 rounded-full">
+                      {form.amenities.length}
                     </span>
-                  ))}
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={resetToDefaultAmenities}
+                      title="Rétablir les 5 équipements standard de la résidence"
+                      className="flex items-center gap-1.5 text-primary-600 hover:text-primary-700 font-medium px-2.5 py-1 rounded-lg hover:bg-primary-50 transition-colors"
+                    >
+                      <RotateCcw size={13} />
+                      Rétablir les 5 de base
+                    </button>
+                    {form.amenities.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={clearAllAmenities}
+                        className="text-gray-400 hover:text-red-600 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
+                      >
+                        Tout effacer
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Badges des équipements actifs avec bouton X */}
+                {form.amenities.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {form.amenities.map((a, i) => (
+                      <span
+                        key={i}
+                        className="group inline-flex items-center gap-2 bg-white text-gray-800 border border-primary-200 shadow-xs pl-3 pr-2 py-1.5 rounded-xl text-xs font-medium hover:border-primary-400 transition-all"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary-500"></span>
+                        <span>{a}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeAmenity(i)}
+                          aria-label={`Supprimer ${a}`}
+                          className="w-4 h-4 flex items-center justify-center rounded-full text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200/60 rounded-xl p-3">
+                    Aucun équipement sélectionné pour cette chambre. Cliquez sur <strong>« Rétablir les 5 de base »</strong> ou ajoutez-en ci-dessous.
+                  </p>
+                )}
+
+                {/* Suggestions rapides en 1 clic */}
+                {availableSuggestions.length > 0 && (
+                  <div className="pt-2 border-t border-gray-200/70">
+                    <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider block mb-2">
+                      Ajout rapide en 1 clic :
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {availableSuggestions.map((sug, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => addAmenity(sug)}
+                          className="inline-flex items-center gap-1 bg-white hover:bg-primary-50 border border-dashed border-gray-300 hover:border-primary-400 text-gray-600 hover:text-primary-700 text-xs px-2.5 py-1 rounded-lg transition-all"
+                        >
+                          <Plus size={12} className="text-primary-500" />
+                          <span>{sug}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Champ d'ajout personnalisé */}
+                <div className="pt-2 border-t border-gray-200/70">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      aria-label="Ajouter un équipement spécifique"
+                      className={`${inputCls} bg-white`}
+                      value={amenityInput}
+                      onChange={e => setAmenityInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addAmenity())}
+                      placeholder="Autre équipement personnalisé (ex: Machine Nespresso, Jacuzzi...)"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Ajouter équipement"
+                      onClick={() => addAmenity()}
+                      disabled={!amenityInput.trim()}
+                      className="px-4 py-2 bg-primary-600 disabled:opacity-50 text-white rounded-xl text-sm font-medium hover:bg-primary-700 shrink-0 flex items-center gap-1.5 transition-colors"
+                    >
+                      <Plus size={16} />
+                      <span className="hidden sm:inline">Ajouter</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -2288,6 +2428,7 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
     { id: 'planning', label: 'Planning', icon: CalendarDays },
     { id: 'clients', label: 'Clients', icon: Users },
     { id: 'chambres', label: 'Appartements', icon: BedDouble },
+    { id: 'cadre', label: 'Notre Cadre', icon: Waves },
     { id: 'audit', label: 'Journal d\'audit', icon: ClipboardList },
   ];
 
@@ -2435,6 +2576,7 @@ const DashboardContent = ({ session, onLogout }: { session: Session; onLogout: (
         {activeTab === 'planning' && <PlanningTab reservations={reservations} conflictIds={conflictIds} rooms={rooms} headerActions={headerActions} />}
         {activeTab === 'clients' && <ClientsTab reservations={reservations} rooms={rooms} headerActions={headerActions} />}
         {activeTab === 'chambres' && <ChambresTab headerActions={headerActions} />}
+        {activeTab === 'cadre' && <CadreAdminTab headerActions={headerActions} />}
         {activeTab === 'audit' && <AuditTab headerActions={headerActions} />}
         {activeTab === 'settings' && (
           <SettingsTab
